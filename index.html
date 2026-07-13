@@ -721,7 +721,9 @@ function renderAov(stab) {
     const orders  = DATA.length;
     const aov     = revenue / orders;
     const median  = calcMedian(DATA.map(o=>o.total));
-    const maxOrd  = Math.max(...DATA.map(o=>o.total));
+    // Evitar Math.max(...DATA): al expandir todas las órdenes como argumentos
+    // supera la pila del navegador cuando el historial crece.
+    const maxOrd  = DATA.reduce((max, o) => Math.max(max, o.total), 0);
     const clients = new Set(DATA.map(o=>o.dni).filter(x=>x&&x!=='S/D')).size;
     const isGeneral = stab === 'general';
 
