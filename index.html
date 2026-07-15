@@ -422,6 +422,14 @@ function fmtMonth(ym) {
     return `${names[parseInt(m)]} ${y}`;
 }
 
+// Clasifica el estado de ML en "cancelada" o "devuelta" (aproximacion por
+// palabra clave, igual criterio que Dashboard FYL/Agente de ventas).
+function clasificarAnulacion(estado) {
+    const e = (estado || '').toLowerCase();
+    if (e.includes('cancelad') || e.includes('rechazad') || e.includes('no entregad')) return 'cancelada';
+    return 'devuelta';
+}
+
 // ── PAGE SWITCH ───────────────────────────────────────────────────────────
 function switchPage(page) {
     activePage = page;
@@ -499,7 +507,7 @@ async function loadData() {
         let allRows = []; let from = 0; const ps = 1000;
         while (true) {
             const res = await fetch(
-                `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,sku,tienda,tienda_oficial,dni,comprador,email&ingresos_productos_ars=gt.0&limit=${ps}&offset=${from}`,
+                `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email&ingresos_productos_ars=gt.0&limit=${ps}&offset=${from}`,
                 { headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
             );
             if (!res.ok) throw new Error(`${res.status}`);
@@ -510,24 +518,32 @@ async function loadData() {
         }
 
         // 4. RAW_ROWS: filas individuales enriquecidas
-        RAW_ROWS = allRows.map(r => ({
-            num_venta: r.num_venta || '',
-            fecha:     r.fecha    || '',
-            yearmonth: (r.fecha||'').substring(0,7),
-            uds:       parseFloat(r.unidades) || 0,
-            total:     parseFloat(r.ingresos_productos_ars) || 0,
-            sku:       r.sku     || '',
-            tienda:    r.tienda  || '',
-            marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
-            email:     r.email || '',
-            dni:       r.dni     || '',
-            comprador: r.comprador || '',
-        })).filter(r => r.total > 0);
+        RAW_ROWS = allRows.map(r => {
+            const anulacion = parseFloat(r.anulaciones_reembolsos_ars) || 0;
+            return {
+                num_venta: r.num_venta || '',
+                fecha:     r.fecha    || '',
+                yearmonth: (r.fecha||'').substring(0,7),
+                uds:       parseFloat(r.unidades) || 0,
+                total:     parseFloat(r.ingresos_productos_ars) || 0,
+                sku:       r.sku     || '',
+                tienda:    r.tienda  || '',
+                marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
+                email:     r.email || '',
+                dni:       r.dni     || '',
+                comprador: r.comprador || '',
+                anulacion,
+                completa:      anulacion === 0,
+                tipoAnulacion: anulacion !== 0 ? clasificarAnulacion(r.estado) : null,
+            };
+        }).filter(r => r.total > 0);
 
-        // 5. RAW_ORDERS: agrupado por num_venta para AOV
+        // 5. RAW_ORDERS: agrupado por num_venta para AOV — solo suma filas
+        // completas (sin anulaciones_reembolsos_ars); las canceladas/devueltas
+        // quedan afuera de ingresos, unidades, ordenes y ticket promedio.
         const orderMap = {};
         RAW_ROWS.forEach(r => {
-            if (!r.num_venta) return;
+            if (!r.num_venta || !r.completa) return;
             if (!orderMap[r.num_venta]) {
                 orderMap[r.num_venta] = { total:0, fecha:r.fecha, yearmonth:r.yearmonth, tienda:r.tienda, marca:r.marca||'', dni:r.dni, sku:r.sku, email:r.email||'' };
             }
@@ -603,9 +619,18 @@ function renderGeneral() {
     const nOrdenes   = orders.length;
     const aov        = nOrdenes ? revenue / nOrdenes : 0;
     const median     = calcMedian(orders.map(o=>o.total));
-    const clientes   = new Set(rows.map(r=>r.dni).filter(x=>x&&x!=='S/D')).size;
+    const clientes   = new Set(rows.filter(r=>r.completa).map(r=>r.dni).filter(x=>x&&x!=='S/D')).size;
     const comprasPorCliente = clientes ? (nOrdenes / clientes) : 0;
     const ticketMediano = median;
+
+    // Canceladas/devueltas: aproximacion por palabra clave sobre `estado`,
+    // mismo criterio que Dashboard FYL — no entran en los totales de arriba.
+    const filasCanceladas = rows.filter(r => r.tipoAnulacion === 'cancelada');
+    const filasDevueltas   = rows.filter(r => r.tipoAnulacion === 'devuelta');
+    const cantCanceladas  = new Set(filasCanceladas.map(r => r.num_venta)).size;
+    const montoCanceladas = filasCanceladas.reduce((s, r) => s + r.total, 0);
+    const cantDevueltas   = new Set(filasDevueltas.map(r => r.num_venta)).size;
+    const montoDevueltas  = filasDevueltas.reduce((s, r) => s + r.total, 0);
 
     document.getElementById('generalKpis').innerHTML = `
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Revenue Total</span><div class="kpi-icon green"><i class="fas fa-coins"></i></div></div><div class="kpi-value">${fmtK(revenue)}</div><div class="kpi-sub">Ingresos del período</div></div>
@@ -614,6 +639,10 @@ function renderGeneral() {
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ticket mediano</span><div class="kpi-icon purple"><i class="fas fa-chart-line"></i></div></div><div class="kpi-value">${fmt(ticketMediano)}</div><div class="kpi-sub">Orden del percentil 50</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon red"><i class="fas fa-users"></i></div></div><div class="kpi-value">${clientes.toLocaleString('es-AR')}</div><div class="kpi-sub">DNIs únicos</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Compras por cliente</span><div class="kpi-icon green"><i class="fas fa-redo"></i></div></div><div class="kpi-value">${comprasPorCliente.toFixed(2)}</div><div class="kpi-sub">Promedio de órdenes / cliente</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Cantidad Cancelada</span><div class="kpi-icon red"><i class="fas fa-ban"></i></div></div><div class="kpi-value">${cantCanceladas.toLocaleString('es-AR')}</div><div class="kpi-sub">Órdenes canceladas</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Valor Cancelada</span><div class="kpi-icon red"><i class="fas fa-ban"></i></div></div><div class="kpi-value">${fmt(montoCanceladas)}</div><div class="kpi-sub">Fuera de Revenue Total</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Cantidad Devuelta</span><div class="kpi-icon orange"><i class="fas fa-rotate-left"></i></div></div><div class="kpi-value">${cantDevueltas.toLocaleString('es-AR')}</div><div class="kpi-sub">Órdenes devueltas</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Valor Devuelta</span><div class="kpi-icon orange"><i class="fas fa-rotate-left"></i></div></div><div class="kpi-value">${fmt(montoDevueltas)}</div><div class="kpi-sub">Fuera de Revenue Total</div></div>
     `;
 
     // Revenue mensual — últimos 6 meses si no hay filtro de año/mes
@@ -662,6 +691,7 @@ function renderClientes() {
 
     const clientMap = {};
     rows.forEach(r => {
+        if (!r.completa) return;
         const dni = r.dni || 'S/D';
         if (dni === 'S/D') return;
         if (!clientMap[dni]) clientMap[dni] = { total:0, ordenes:new Set(), tiendas:new Set(), comprador:r.comprador||'', email:r.email||'', lastDate:'' };
@@ -1140,7 +1170,7 @@ function renderRetention() {
 function groupByOrder(rows) {
     const map = {};
     rows.forEach(r => {
-        if (!r.num_venta) return;
+        if (!r.num_venta || !r.completa) return;
         if (!map[r.num_venta]) map[r.num_venta] = { total:0, yearmonth:r.yearmonth, fecha:r.fecha, tienda:r.tienda, marca:r.marca, dni:r.dni, email:r.email||'' };
         map[r.num_venta].total += r.total;
     });
