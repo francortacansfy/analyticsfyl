@@ -237,6 +237,9 @@
     <button class="main-tab" data-page="cohort" onclick="switchPage('cohort')">
         <i class="fas fa-table"></i> Cohort & Retención
     </button>
+    <button class="main-tab" data-page="marketing" onclick="switchPage('marketing')">
+        <i class="fas fa-bullhorn"></i> Marketing
+    </button>
 </nav>
 
 <!-- ── GLOBAL FILTERS ── -->
@@ -372,6 +375,17 @@
         </div>
     </div>
 
+    <!-- ── MARKETING (CAC / ROAS / LTV) ── -->
+    <div class="page" id="page-marketing">
+        <div class="kpi-grid" id="marketingKpis"></div>
+        <div class="chart-card">
+            <div class="card-header">
+                <div><div class="card-title">CAC / ROAS / LTV por mes</div><div class="card-sub">Gasto en Meta Ads vs. clientes nuevos e ingresos, combinando Shopify + Mercado Libre</div></div>
+            </div>
+            <div class="cohort-scroll" id="marketingTable"><div class="empty">Sincronizá para ver datos</div></div>
+        </div>
+    </div>
+
 </div><!-- /content -->
 
 <script>
@@ -383,6 +397,8 @@ let RAW_ROWS    = [];   // filas crudas de ventas
 let CLIENTES_MAP = {};  // dni → { ordenes } desde tabla clientes
 let RAW_ORDERS  = [];   // agrupado por num_venta (para AOV)
 let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tienda)
+let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
+let GASTO_ERROR = null;
 let SKU_MARCA   = {};
 let CHARTS      = {};
 let activePage  = 'general';
@@ -423,6 +439,7 @@ function switchPage(page) {
     if (page === 'clientes') renderClientes();
     if (page === 'aov')      renderAov('general');
     if (page === 'cohort')   renderCohortAll();
+    if (page === 'marketing') renderMarketing();
 }
 
 // ── GLOBAL FILTERS ────────────────────────────────────────────────────────
@@ -438,6 +455,7 @@ function onGlobalFilter() {
     if (activePage === 'clientes') renderClientes();
     if (activePage === 'aov')      renderAov('general');
     if (activePage === 'cohort')   renderCohortAll();
+    if (activePage === 'marketing') renderMarketing();
 }
 
 function getGlobalFiltered() {
@@ -522,6 +540,21 @@ async function loadData() {
 
         // 6. RAW_COHORT: igual a RAW_ORDERS pero con dni
         RAW_COHORT = RAW_ORDERS.filter(o => o.dni && o.dni !== 'S/D');
+
+        // 6b. Fetch gasto_publicidad_mensual — aislado: si falla, no debe romper el resto
+        GASTO_ERROR = null;
+        try {
+            const gastoRes = await fetch(
+                `${SUPA_URL}/rest/v1/gasto_publicidad_mensual?select=mes,marca,monto_ars&order=mes.asc`,
+                { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
+            );
+            if (!gastoRes.ok) throw new Error(`${gastoRes.status}`);
+            GASTO = await gastoRes.json();
+        } catch (e) {
+            console.error('Error cargando gasto_publicidad_mensual:', e);
+            GASTO = [];
+            GASTO_ERROR = e.message;
+        }
 
         // 7. Populate global filters
         const years   = [...new Set(RAW_ROWS.map(r => r.fecha?.substring(0,4)).filter(Boolean))].sort();
@@ -1132,6 +1165,116 @@ function getMonthRange(start,end){
     const r=[]; let cur=start;
     while(cur<=end){r.push(cur);cur=addMonths(cur,1);} return r;
 }
+// ── MARKETING (CAC / ROAS / LTV) ──────────────────────────────────────────
+// Combina Shopify + ML (RAW_COHORT ya está deduplicado por num_venta y filtra
+// dni='S/D') porque el gasto de Meta es por marca, no por canal. Usa el mismo
+// criterio de matching de marca que getGlobalFiltered (includes 'hairfy' /
+// 'fynutrition'), no el normalizeMarca del otro dashboard, para ser consistente
+// con el resto de este archivo.
+function getOrdersCombinadasMkt() {
+    return RAW_COHORT.filter(o => {
+        if (!activeMarca) return true;
+        const om = (o.marca || '').toLowerCase();
+        if (activeMarca === 'Hairfy') return om.includes('hairfy');
+        if (activeMarca === 'FYnutrition') return om.includes('fynutrition') || om.includes('fy labs');
+        return true;
+    }).map(o => ({ dni: o.dni, yearmonth: o.yearmonth, ingresos: o.total }));
+}
+
+function computeCombinedFirstBuy(orders) {
+    const firstBuy = {};
+    orders.forEach(o => {
+        if (!firstBuy[o.dni] || o.yearmonth < firstBuy[o.dni]) firstBuy[o.dni] = o.yearmonth;
+    });
+    return firstBuy;
+}
+
+function computeMarketingMonths(orders, gastoRows, monthsList) {
+    const firstBuy = computeCombinedFirstBuy(orders);
+
+    const nuevosPorMes = {};
+    Object.values(firstBuy).forEach(ym => { nuevosPorMes[ym] = (nuevosPorMes[ym]||0) + 1; });
+
+    const ingresosPorMes = {};
+    orders.forEach(o => { ingresosPorMes[o.yearmonth] = (ingresosPorMes[o.yearmonth]||0) + o.ingresos; });
+
+    const gastoPorMes = {};
+    gastoRows.forEach(r => {
+        const ym = r.mes.substring(0,7);
+        gastoPorMes[ym] = (gastoPorMes[ym]||0) + Number(r.monto_ars);
+    });
+
+    const ltvSumPorCohort = {};
+    orders.forEach(o => {
+        const cohortMonth = firstBuy[o.dni];
+        const diff = monthDiff(cohortMonth, o.yearmonth);
+        if (diff >= 0 && diff <= 2) {
+            ltvSumPorCohort[cohortMonth] = (ltvSumPorCohort[cohortMonth]||0) + o.ingresos;
+        }
+    });
+
+    const lastMonth = monthsList[monthsList.length-1];
+
+    return monthsList.map(ym => {
+        const gasto = gastoPorMes[ym] || 0;
+        const clientesNuevos = nuevosPorMes[ym] || 0;
+        const ingresos = ingresosPorMes[ym] || 0;
+        const cac = gasto > 0 ? gasto / clientesNuevos : null;
+        const roas = gasto > 0 ? ingresos / gasto : null;
+        const windowComplete = monthDiff(ym, lastMonth) >= 2;
+        const ltv3m = (windowComplete && clientesNuevos > 0) ? (ltvSumPorCohort[ym]||0) / clientesNuevos : null;
+        const ltvCac = (ltv3m !== null && cac) ? ltv3m / cac : null;
+        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac };
+    });
+}
+
+function renderMarketing() {
+    const kpiEl = document.getElementById('marketingKpis');
+    const tableEl = document.getElementById('marketingTable');
+    if (!kpiEl || !tableEl) return;
+
+    if (GASTO_ERROR) {
+        tableEl.innerHTML = `<div class="empty">Error cargando datos de gasto: ${GASTO_ERROR}</div>`;
+        return;
+    }
+    if (!GASTO.length) {
+        tableEl.innerHTML = '<div class="empty">Sincronizá para ver datos</div>';
+        return;
+    }
+
+    const gastoFiltrado = activeMarca ? GASTO.filter(r => r.marca === activeMarca) : GASTO;
+    const orders = getOrdersCombinadasMkt();
+    const monthsList = [...new Set(GASTO.map(r=>r.mes.substring(0,7)))].sort();
+    const rows = computeMarketingMonths(orders, gastoFiltrado, monthsList);
+
+    const kpiRow = [...rows].reverse().find(r => r.ltv3m !== null) || rows[rows.length-1];
+    kpiEl.innerHTML = `
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cac !== null ? fmt(kpiRow.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roas !== null ? kpiRow.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto Meta</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCac !== null ? kpiRow.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
+    `;
+
+    let html = `<table class="cohort-table">
+        <thead><tr>
+            <th class="left">Mes</th><th class="left">Gasto Meta</th><th>Clientes nuevos</th>
+            <th>CAC</th><th class="left">Ingresos</th><th>ROAS</th><th>LTV 3M</th><th>LTV:CAC</th>
+        </tr></thead><tbody>`;
+    rows.forEach(r => {
+        html += `<tr>
+            <td class="cohort-label">${fmtMonth(r.mes)}</td>
+            <td class="cohort-label">${fmt(r.gasto)}</td>
+            <td class="cohort-count">${r.clientesNuevos.toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${r.cac !== null ? fmt(r.cac) : '—'}</td>
+            <td class="cohort-label">${fmt(r.ingresos)}</td>
+            <td class="cohort-count">${r.roas !== null ? r.roas.toFixed(2)+'x' : '—'}</td>
+            <td class="cohort-count">${r.ltv3m !== null ? fmt(r.ltv3m) : '—'}</td>
+            <td class="cohort-count">${r.ltvCac !== null ? r.ltvCac.toFixed(2)+'x' : '—'}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    tableEl.innerHTML = html;
+}
+
 function cohortCellColor(intensity){
     const stops=[[232,237,247],[191,210,240],[147,179,228],[90,140,210],[37,99,235],[30,58,138]];
     const t=Math.max(0,Math.min(1,intensity))*(stops.length-1); const i=Math.floor(t); const f=t-i;
