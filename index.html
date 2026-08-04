@@ -91,6 +91,8 @@
         .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
         .card-title { font-size:13.5px; font-weight:600; color:var(--text-1); }
         .card-sub   { font-size:11.5px; color:var(--text-3); margin-top:2px; }
+        .freshness-badge { font-size:11.5px; color:var(--text-3); margin-bottom:14px; }
+        .freshness-badge strong { color:var(--text-2); font-weight:600; }
         .chart-wrap    { position:relative; height:220px; }
         .chart-wrap-lg { position:relative; height:280px; }
 
@@ -270,6 +272,7 @@
 
     <!-- ── GENERAL ── -->
     <div class="page active" id="page-general">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessGeneral">—</strong></div>
         <div class="kpi-grid" id="generalKpis"></div>
         <div class="two-col">
             <div class="chart-card no-mb">
@@ -285,6 +288,7 @@
 
     <!-- ── CLIENTES ── -->
     <div class="page" id="page-clientes">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessClientes">—</strong></div>
         <div class="kpi-grid" id="clientesKpis"></div>
         <div class="table-card">
             <div class="table-head">
@@ -302,11 +306,13 @@
 
     <!-- ── AOV ── -->
     <div class="page" id="page-aov">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessAov">—</strong></div>
         <div id="aov-body-general"></div>
     </div>
 
     <!-- ── COHORT & RETENCIÓN ── -->
     <div class="page" id="page-cohort">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessCohort">—</strong></div>
         <!-- Canal sub-tabs -->
         <div class="canal-tabs">
             <button class="canal-tab active" data-canal="shopify" onclick="switchCanal('shopify')">
@@ -378,6 +384,7 @@
 
     <!-- ── MARKETING (CAC / ROAS / LTV) ── -->
     <div class="page" id="page-marketing">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessMarketing">—</strong></div>
         <div class="kpi-grid" id="marketingKpis"></div>
         <div class="chart-card">
             <div class="card-header">
@@ -590,6 +597,11 @@ async function loadData() {
         }
 
         statusDot.classList.add('ok');
+        const maxFechaStr = formatFechaDMY(getMaxFecha(RAW_ROWS));
+        ['freshnessGeneral', 'freshnessClientes', 'freshnessAov', 'freshnessCohort', 'freshnessMarketing'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = maxFechaStr;
+        });
         renderGeneral();
         renderAovAll();
 
