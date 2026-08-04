@@ -1,4 +1,4 @@
-// Funciones puras compartidas por analyticsfyl/index.html:
+// Funciones puras compartidas por index.html:
 // resolución de período, segmentación de compradores (Detalle de compradores),
 // cálculo de deltas y fecha de última actualización.
 // Se cargan como <script> clásico (definen globals) y también son requireable
@@ -12,7 +12,7 @@ function addMonths(ym, n) {
     return `${y}-${String(m).padStart(2, '0')}`;
 }
 
-function resolveBuyerPeriod(year, month, availableMonths) {
+function resolveBuyerPeriod(year, month, availableMonths, maxFecha) {
     if (!availableMonths.length) return { months: [], prevMonths: [] };
     if (year && month) {
         const ym = `${year}-${month}`;
@@ -23,8 +23,19 @@ function resolveBuyerPeriod(year, month, availableMonths) {
         const prevMonths = months.map(m => addMonths(m, -12));
         return { months, prevMonths };
     }
-    const last = availableMonths[availableMonths.length - 1];
+    let last = availableMonths[availableMonths.length - 1];
+    if (maxFecha && availableMonths.length > 1 && isPartialMonth(last, maxFecha)) {
+        last = availableMonths[availableMonths.length - 2];
+    }
     return { months: [last], prevMonths: [addMonths(last, -1)] };
+}
+
+function isPartialMonth(ym, maxFecha) {
+    if (maxFecha.substring(0, 7) !== ym) return false;
+    const [y, m] = ym.split('-').map(Number);
+    const lastDayOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const maxDay = Number(maxFecha.substring(8, 10));
+    return maxDay < lastDayOfMonth;
 }
 
 function segmentBuyers(orders, periodMonths) {
@@ -67,7 +78,7 @@ function formatFechaDMY(ymd) {
 
 if (typeof module !== 'undefined') {
     module.exports = {
-        addMonths, resolveBuyerPeriod, segmentBuyers,
+        addMonths, resolveBuyerPeriod, isPartialMonth, segmentBuyers,
         computeDeltaPct, computeDeltaPP, getMaxFecha, formatFechaDMY
     };
 }

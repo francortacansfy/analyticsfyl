@@ -1,6 +1,6 @@
 const assert = require('assert');
 const {
-    addMonths, resolveBuyerPeriod, segmentBuyers,
+    addMonths, resolveBuyerPeriod, isPartialMonth, segmentBuyers,
     computeDeltaPct, computeDeltaPP, getMaxFecha, formatFechaDMY
 } = require('./buyer-metrics.js');
 
@@ -12,12 +12,12 @@ assert.strictEqual(addMonths('2026-01', -1), '2025-12');
 assert.strictEqual(addMonths('2026-07', -12), '2025-07');
 
 // resolveBuyerPeriod: año + mes -> ese mes vs mes anterior
-let p = resolveBuyerPeriod('2026', '07', ['2025-01', '2026-06', '2026-07']);
+let p = resolveBuyerPeriod('2026', '07', ['2025-01', '2026-06', '2026-07'], '2026-07-31');
 assert.deepStrictEqual(p.months, ['2026-07']);
 assert.deepStrictEqual(p.prevMonths, ['2026-06']);
 
 // resolveBuyerPeriod: solo año -> 12 meses del año vs 12 meses del año anterior
-p = resolveBuyerPeriod('2026', '', ['2025-01', '2026-01', '2026-07']);
+p = resolveBuyerPeriod('2026', '', ['2025-01', '2026-01', '2026-07'], '2026-07-31');
 assert.strictEqual(p.months.length, 12);
 assert.strictEqual(p.months[0], '2026-01');
 assert.strictEqual(p.months[11], '2026-12');
@@ -25,12 +25,26 @@ assert.strictEqual(p.prevMonths[0], '2025-01');
 assert.strictEqual(p.prevMonths[11], '2025-12');
 
 // resolveBuyerPeriod: sin filtro -> último mes disponible vs el anterior
-p = resolveBuyerPeriod('', '', ['2025-01', '2026-06', '2026-07']);
+p = resolveBuyerPeriod('', '', ['2025-01', '2026-06', '2026-07'], '2026-07-31');
 assert.deepStrictEqual(p.months, ['2026-07']);
 assert.deepStrictEqual(p.prevMonths, ['2026-06']);
 
+// resolveBuyerPeriod: sin filtro, mes en curso incompleto -> usa el mes anterior completo
+p = resolveBuyerPeriod('', '', ['2025-01', '2026-06', '2026-07'], '2026-07-02');
+assert.deepStrictEqual(p.months, ['2026-06']);
+assert.deepStrictEqual(p.prevMonths, ['2026-05']);
+
+// resolveBuyerPeriod: sin filtro, un solo mes disponible e incompleto -> lo usa igual (no hay alternativa)
+p = resolveBuyerPeriod('', '', ['2026-07'], '2026-07-02');
+assert.deepStrictEqual(p.months, ['2026-07']);
+
 // resolveBuyerPeriod: sin datos disponibles
 assert.deepStrictEqual(resolveBuyerPeriod('', '', []), { months: [], prevMonths: [] });
+
+// isPartialMonth
+assert.strictEqual(isPartialMonth('2026-07', '2026-07-31'), false);
+assert.strictEqual(isPartialMonth('2026-07', '2026-07-02'), true);
+assert.strictEqual(isPartialMonth('2026-06', '2026-07-02'), false); // distinto mes, no aplica
 
 // segmentBuyers: definición de Mercado Libre —
 // A compró en 2025-08 y en 2026-07 -> frecuente (2025-08 cae en la ventana [2025-07, 2026-07)).
