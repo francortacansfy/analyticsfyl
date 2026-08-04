@@ -621,6 +621,7 @@ function renderGeneral() {
     const aov        = nOrdenes ? revenue / nOrdenes : 0;
     const median     = calcMedian(orders.map(o=>o.total));
     const clientes   = new Set(rows.filter(r=>r.completa).map(r=>r.dni).filter(x=>x&&x!=='S/D')).size;
+    const unidadesVendidas = rows.filter(r => r.completa).reduce((s, r) => s + r.uds, 0);
     const comprasPorCliente = clientes ? (nOrdenes / clientes) : 0;
     const ticketMediano = median;
 
@@ -636,6 +637,7 @@ function renderGeneral() {
     document.getElementById('generalKpis').innerHTML = `
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Revenue Total</span><div class="kpi-icon green"><i class="fas fa-coins"></i></div></div><div class="kpi-value">${fmtK(revenue)}</div><div class="kpi-sub">Ingresos del período</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Órdenes</span><div class="kpi-icon blue"><i class="fas fa-receipt"></i></div></div><div class="kpi-value">${nOrdenes.toLocaleString('es-AR')}</div><div class="kpi-sub">Ventas únicas</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Unidades Vendidas</span><div class="kpi-icon blue"><i class="fas fa-cubes"></i></div></div><div class="kpi-value">${unidadesVendidas.toLocaleString('es-AR')}</div><div class="kpi-sub">Unidades del período</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">AOV</span><div class="kpi-icon orange"><i class="fas fa-dollar-sign"></i></div></div><div class="kpi-value">${fmt(aov)}</div><div class="kpi-sub">Ticket promedio medio</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ticket mediano</span><div class="kpi-icon purple"><i class="fas fa-chart-line"></i></div></div><div class="kpi-value">${fmt(ticketMediano)}</div><div class="kpi-sub">Orden del percentil 50</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon red"><i class="fas fa-users"></i></div></div><div class="kpi-value">${clientes.toLocaleString('es-AR')}</div><div class="kpi-sub">DNIs únicos</div></div>
