@@ -395,7 +395,6 @@ const SUPA_KEY = 'sb_publishable_14OWO27CxU7Cml4rwtvBlg_8RR-6sGm';
 
 // ── STATE ─────────────────────────────────────────────────────────────────
 let RAW_ROWS    = [];   // filas crudas de ventas
-let CLIENTES_MAP = {};  // dni → { ordenes } desde tabla clientes
 let RAW_ORDERS  = [];   // agrupado por num_venta (para AOV)
 let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tienda)
 let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
@@ -494,14 +493,6 @@ async function loadData() {
         if (prodRes.ok) {
             const prods = await prodRes.json();
             prods.forEach(p => { if (p.sku) SKU_MARCA[p.sku] = p.marca ? p.marca.trim() : ''; });
-        }
-
-        // 2. Fetch tabla clientes (ordenes reales por DNI)
-        const cliRes = await fetch(`${SUPA_URL}/rest/v1/clientes?select=dni,ordenes&limit=10000`,
-            { headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } });
-        if (cliRes.ok) {
-            const cliData = await cliRes.json();
-            cliData.forEach(r => { if (r.dni) CLIENTES_MAP[r.dni] = r.ordenes || 0; });
         }
 
         // 3. Fetch ventas (paginado)
@@ -697,8 +688,9 @@ function renderClientes() {
         if (!r.completa) return;
         const dni = r.dni || 'S/D';
         if (dni === 'S/D') return;
-        if (!clientMap[dni]) clientMap[dni] = { total:0, ordenes:new Set(), tiendas:new Set(), comprador:r.comprador||'', email:r.email||'', lastDate:'' };
+        if (!clientMap[dni]) clientMap[dni] = { total:0, uds:0, ordenes:new Set(), tiendas:new Set(), comprador:r.comprador||'', email:r.email||'', lastDate:'' };
         clientMap[dni].total += r.total;
+        clientMap[dni].uds += r.uds;
         if (r.num_venta) clientMap[dni].ordenes.add(r.num_venta);
         if (r.tienda) clientMap[dni].tiendas.add(r.tienda);
         if (r.comprador && !clientMap[dni].comprador) clientMap[dni].comprador = r.comprador;
@@ -729,8 +721,8 @@ function renderClientes() {
             <td style="font-size:12px;">${c.comprador||'—'}</td>
             <td style="font-size:12px;">${c.email||'—'}</td>
             <td>${fmt(c.total)}</td>
+            <td>${c.uds.toLocaleString('es-AR')}</td>
             <td>${c.ordenes.size}</td>
-            <td>${CLIENTES_MAP[dni] !== undefined ? CLIENTES_MAP[dni] : '—'}</td>
             <td>${fmt(c.total/(c.ordenes.size||1))}</td>
             <td style="font-size:12px;">${[...c.tiendas].filter(Boolean).join(', ')||'—'}</td>
             <td class="mono">${c.lastDate||'—'}</td>
