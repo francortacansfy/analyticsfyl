@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="analyticsfyl/buyer-metrics.js"></script>
     <style>
         *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
         :root {
@@ -1186,10 +1187,6 @@ function calcMedian(arr) {
 function monthDiff(from,to){
     const [fy,fm]=from.split('-').map(Number); const [ty,tm]=to.split('-').map(Number);
     return (ty-fy)*12+(tm-fm);
-}
-function addMonths(ym,n){
-    let [y,m]=ym.split('-').map(Number); m+=n;
-    while(m>12){m-=12;y++;} return `${y}-${String(m).padStart(2,'0')}`;
 }
 function getMonthRange(start,end){
     const r=[]; let cur=start;
