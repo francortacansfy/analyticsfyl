@@ -415,6 +415,12 @@
             </div>
             <div class="cohort-scroll" id="marketingTable"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
+        <div class="chart-card">
+            <div class="card-header">
+                <div><div class="card-title">Conversión por producto</div><div class="card-sub">Solo Mercado Libre — Shopify no expone un ID de producto en las visitas, no se puede desglosar por SKU. Respeta el filtro de Año/Mes de arriba; sin filtro, muestra todo el período cargado.</div></div>
+            </div>
+            <div class="cohort-scroll" id="marketingProductosTable"><div class="empty">Sincronizá para ver datos</div></div>
+        </div>
     </div>
 
 </div><!-- /content -->
@@ -605,7 +611,7 @@ async function loadData() {
             let metricasRows = []; let mFrom = 0; const mPs = 1000;
             while (true) {
                 const metricasRes = await fetch(
-                    `${SUPA_URL}/rest/v1/metricas_publicaciones_ml?select=mes,cantidad_ventas,visitas_unicas,marca&limit=${mPs}&offset=${mFrom}`,
+                    `${SUPA_URL}/rest/v1/metricas_publicaciones_ml?select=mes,sku,publicacion,cantidad_ventas,visitas_unicas,marca&limit=${mPs}&offset=${mFrom}`,
                     { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
                 );
                 if (!metricasRes.ok) throw new Error(`${metricasRes.status}`);
@@ -1493,6 +1499,59 @@ function renderMarketing() {
     });
     html += `</tbody></table>`;
     tableEl.innerHTML = html;
+
+    renderMarketingProductos();
+}
+
+function renderMarketingProductos() {
+    const el = document.getElementById('marketingProductosTable');
+    if (!el) return;
+    if (!METRICAS_ML.length) { el.innerHTML = '<div class="empty">Sincronizá para ver datos</div>'; return; }
+
+    const year   = document.getElementById('globalYear')?.value   || '';
+    const month  = document.getElementById('globalMonth')?.value  || '';
+
+    const filtered = METRICAS_ML.filter(r => {
+        if (activeMarca && r.marca !== activeMarca) return false;
+        const ym = r.mes.substring(0,7);
+        if (year  && !ym.startsWith(year))        return false;
+        if (month && ym.substring(5,7) !== month) return false;
+        return true;
+    });
+
+    if (!filtered.length) { el.innerHTML = '<div class="empty">Sin datos para los filtros seleccionados</div>'; return; }
+
+    const porSku = {};
+    filtered.forEach(r => {
+        const key = r.sku || '(sin SKU)';
+        if (!porSku[key]) porSku[key] = { sku: key, publicacion: r.publicacion || '', marca: r.marca || '—', visitas: 0, ventas: 0 };
+        porSku[key].visitas += Number(r.visitas_unicas) || 0;
+        porSku[key].ventas  += Number(r.cantidad_ventas) || 0;
+        if (!porSku[key].publicacion && r.publicacion) porSku[key].publicacion = r.publicacion;
+    });
+
+    const rows = Object.values(porSku)
+        .map(p => ({ ...p, conversion: p.visitas > 0 ? p.ventas / p.visitas * 100 : 0 }))
+        .sort((a, b) => b.visitas - a.visitas)
+        .slice(0, 30);
+
+    let html = `<table class="cohort-table">
+        <thead><tr>
+            <th class="left">SKU</th><th class="left">Publicación</th><th class="left">Marca</th>
+            <th>Visitas</th><th>Ventas</th><th>Conversión</th>
+        </tr></thead><tbody>`;
+    rows.forEach(p => {
+        html += `<tr>
+            <td class="cohort-label mono">${p.sku}</td>
+            <td class="cohort-label" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.publicacion}">${p.publicacion || '—'}</td>
+            <td class="cohort-label">${p.marca}</td>
+            <td class="cohort-count">${p.visitas.toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${p.ventas.toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${p.conversion.toFixed(1)}%</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    el.innerHTML = html;
 }
 
 function cohortCellColor(intensity){
