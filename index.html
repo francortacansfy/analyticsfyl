@@ -429,6 +429,7 @@ let RAW_ORDERS  = [];   // agrupado por num_venta (para AOV)
 let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tienda)
 let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
 let GASTO_ERROR = null;
+let METRICAS_ML = [];   // metricas_publicaciones_ml: visitas/ventas por publicacion/mes (Mercado Libre)
 let SKU_MARCA   = {};
 let CHARTS      = {};
 let activePage  = 'general';
@@ -596,6 +597,26 @@ async function loadData() {
             console.error('Error cargando gasto_publicidad_mensual:', e);
             GASTO = [];
             GASTO_ERROR = e.message;
+        }
+
+        // 6c. Fetch metricas_publicaciones_ml (paginado) — aislado: si falla, no debe romper el resto
+        try {
+            let metricasRows = []; let mFrom = 0; const mPs = 1000;
+            while (true) {
+                const metricasRes = await fetch(
+                    `${SUPA_URL}/rest/v1/metricas_publicaciones_ml?select=mes,cantidad_ventas,visitas_unicas,marca&limit=${mPs}&offset=${mFrom}`,
+                    { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
+                );
+                if (!metricasRes.ok) throw new Error(`${metricasRes.status}`);
+                const page = await metricasRes.json();
+                metricasRows = metricasRows.concat(page);
+                if (page.length < mPs) break;
+                mFrom += mPs;
+            }
+            METRICAS_ML = metricasRows;
+        } catch (e) {
+            console.error('Error cargando metricas_publicaciones_ml:', e);
+            METRICAS_ML = [];
         }
 
         // 7. Populate global filters
@@ -1344,7 +1365,7 @@ function computeCombinedFirstBuy(orders) {
     return firstBuy;
 }
 
-function computeMarketingMonths(orders, gastoRows, monthsList) {
+function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows) {
     const firstBuy = computeCombinedFirstBuy(orders);
 
     const nuevosPorMes = {};
@@ -1357,6 +1378,15 @@ function computeMarketingMonths(orders, gastoRows, monthsList) {
     gastoRows.forEach(r => {
         const ym = r.mes.substring(0,7);
         gastoPorMes[ym] = (gastoPorMes[ym]||0) + Number(r.monto_ars);
+    });
+
+    // conversion ML: suma de ventas / suma de visitas por mes, sobre publicaciones (no ordenes)
+    const conversionPorMes = {};
+    (metricasRows || []).forEach(r => {
+        const ym = r.mes.substring(0,7);
+        if (!conversionPorMes[ym]) conversionPorMes[ym] = { ventas:0, visitas:0 };
+        conversionPorMes[ym].ventas += Number(r.cantidad_ventas) || 0;
+        conversionPorMes[ym].visitas += Number(r.visitas_unicas) || 0;
     });
 
     const ltvSumPorCohort = {};
@@ -1379,7 +1409,9 @@ function computeMarketingMonths(orders, gastoRows, monthsList) {
         const windowComplete = monthDiff(ym, lastMonth) >= 2;
         const ltv3m = (windowComplete && clientesNuevos > 0) ? (ltvSumPorCohort[ym]||0) / clientesNuevos : null;
         const ltvCac = (ltv3m !== null && cac) ? ltv3m / cac : null;
-        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac };
+        const convDatos = conversionPorMes[ym];
+        const conversion = (convDatos && convDatos.visitas > 0) ? convDatos.ventas / convDatos.visitas * 100 : null;
+        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac, conversion };
     });
 }
 
@@ -1398,21 +1430,24 @@ function renderMarketing() {
     }
 
     const gastoFiltrado = activeMarca ? GASTO.filter(r => r.marca === activeMarca) : GASTO;
+    const metricasFiltradas = activeMarca ? METRICAS_ML.filter(r => r.marca === activeMarca) : METRICAS_ML;
     const orders = getOrdersCombinadasMkt();
     const monthsList = [...new Set(GASTO.map(r=>r.mes.substring(0,7)))].sort();
-    const rows = computeMarketingMonths(orders, gastoFiltrado, monthsList);
+    const rows = computeMarketingMonths(orders, gastoFiltrado, monthsList, metricasFiltradas);
 
     const kpiRow = [...rows].reverse().find(r => r.ltv3m !== null) || rows[rows.length-1];
+    const kpiRowConv = [...rows].reverse().find(r => r.conversion !== null) || kpiRow;
     kpiEl.innerHTML = `
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cac !== null ? fmt(kpiRow.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roas !== null ? kpiRow.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto Meta</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCac !== null ? kpiRow.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión ML — ${fmtMonth(kpiRowConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiRowConv.conversion !== null ? kpiRowConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, solo Mercado Libre</div></div>
     `;
 
     let html = `<table class="cohort-table">
         <thead><tr>
             <th class="left">Mes</th><th class="left">Gasto Meta</th><th>Clientes nuevos</th>
-            <th>CAC</th><th class="left">Ingresos</th><th>ROAS</th><th>LTV 3M</th><th>LTV:CAC</th>
+            <th>CAC</th><th class="left">Ingresos</th><th>ROAS</th><th>LTV 3M</th><th>LTV:CAC</th><th>Conversión ML</th>
         </tr></thead><tbody>`;
     rows.forEach(r => {
         html += `<tr>
@@ -1424,6 +1459,7 @@ function renderMarketing() {
             <td class="cohort-count">${r.roas !== null ? r.roas.toFixed(2)+'x' : '—'}</td>
             <td class="cohort-count">${r.ltv3m !== null ? fmt(r.ltv3m) : '—'}</td>
             <td class="cohort-count">${r.ltvCac !== null ? r.ltvCac.toFixed(2)+'x' : '—'}</td>
+            <td class="cohort-count">${r.conversion !== null ? r.conversion.toFixed(1)+'%' : '—'}</td>
         </tr>`;
     });
     html += `</tbody></table>`;
