@@ -1463,7 +1463,10 @@ function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows, ses
         const ingresos = ingresosPorMes[ym] || 0;
         const gastoCompleto = canalesDelRango.every(c => canalesPorMes[ym]?.has(c));
         const cacBruto = (gasto > 0 && clientesNuevos > 0) ? gasto / clientesNuevos : null;
-        const roasBruto = gasto > 0 ? ingresos / gasto : null;
+        // ingresos=0 y clientesNuevos=0 suele ser "todavía no hay ventas
+        // registradas ese mes" (ej. antes de mayo 2025) más que "publicidad
+        // que vendió cero" — se trata como dato faltante, no como 0 real.
+        const roasBruto = (gasto > 0 && (ingresos > 0 || clientesNuevos > 0)) ? ingresos / gasto : null;
         const cac = gastoCompleto ? cacBruto : null;
         const roas = gastoCompleto ? roasBruto : null;
         const windowComplete = monthDiff(ym, lastMonth) >= 2;
