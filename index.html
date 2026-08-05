@@ -1462,14 +1462,17 @@ function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows, ses
         const clientesNuevos = nuevosPorMes[ym] || 0;
         const ingresos = ingresosPorMes[ym] || 0;
         const gastoCompleto = canalesDelRango.every(c => canalesPorMes[ym]?.has(c));
-        const cac = (gastoCompleto && gasto > 0 && clientesNuevos > 0) ? gasto / clientesNuevos : null;
-        const roas = (gastoCompleto && gasto > 0) ? ingresos / gasto : null;
+        const cacBruto = (gasto > 0 && clientesNuevos > 0) ? gasto / clientesNuevos : null;
+        const roasBruto = gasto > 0 ? ingresos / gasto : null;
+        const cac = gastoCompleto ? cacBruto : null;
+        const roas = gastoCompleto ? roasBruto : null;
         const windowComplete = monthDiff(ym, lastMonth) >= 2;
         const ltv3m = (windowComplete && clientesNuevos > 0) ? (ltvSumPorCohort[ym]||0) / clientesNuevos : null;
         const ltvCac = (ltv3m !== null && cac) ? ltv3m / cac : null;
+        const ltvCacBruto = (ltv3m !== null && cacBruto) ? ltv3m / cacBruto : null;
         const convDatos = conversionPorMes[ym];
         const conversion = (convDatos && convDatos.visitas > 0) ? convDatos.ventas / convDatos.visitas * 100 : null;
-        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac, conversion };
+        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac, conversion, cacBruto, roasBruto, ltvCacBruto, gastoCompleto };
     });
 }
 
@@ -1529,16 +1532,14 @@ function renderMarketing() {
     const rows = renderMarketingSeccion('marketingTable', gastoFiltrado, getOrdersCombinadasMkt(), metricasFiltradas, sesionesFiltradas);
 
     if (rows) {
-        const ultimoConValor = (campo) => [...rows].reverse().find(r => r[campo] !== null) || rows[rows.length-1];
-        const kpiCac    = ultimoConValor('cac');
-        const kpiRoas   = ultimoConValor('roas');
-        const kpiLtvCac = ultimoConValor('ltvCac');
-        const kpiConv   = ultimoConValor('conversion');
+        const kpiRow = rows[rows.length - 1];
+        const kpiConvRow = [...rows].reverse().find(r => r.conversion !== null) || kpiRow;
+        const nota = kpiRow.gastoCompleto ? '' : ' · gasto parcial este mes (falta algún canal)';
         kpiEl.innerHTML = `
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiCac.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiCac.cac !== null ? fmt(kpiCac.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRoas.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRoas.roas !== null ? kpiRoas.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto total</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiLtvCac.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiLtvCac.ltvCac !== null ? kpiLtvCac.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiConv.conversion !== null ? kpiConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cacBruto !== null ? fmt(kpiRow.cacBruto) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo${nota}</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roasBruto !== null ? kpiRow.roasBruto.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto total${nota}</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCacBruto !== null ? kpiRow.ltvCacBruto.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC${nota}</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiConvRow.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiConvRow.conversion !== null ? kpiConvRow.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
         `;
     }
 
