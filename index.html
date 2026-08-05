@@ -430,6 +430,7 @@ let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tien
 let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
 let GASTO_ERROR = null;
 let METRICAS_ML = [];   // metricas_publicaciones_ml: visitas/ventas por publicacion/mes (Mercado Libre)
+let METRICAS_SESIONES_SHOPIFY = []; // metricas_sesiones_shopify: sessions/ordenes por landing page/mes (Shopify)
 let SKU_MARCA   = {};
 let CHARTS      = {};
 let activePage  = 'general';
@@ -617,6 +618,26 @@ async function loadData() {
         } catch (e) {
             console.error('Error cargando metricas_publicaciones_ml:', e);
             METRICAS_ML = [];
+        }
+
+        // 6d. Fetch metricas_sesiones_shopify (paginado) — aislado: si falla, no debe romper el resto
+        try {
+            let sesionesRows = []; let sFrom = 0; const sPs = 1000;
+            while (true) {
+                const sesionesRes = await fetch(
+                    `${SUPA_URL}/rest/v1/metricas_sesiones_shopify?select=mes,sessions,ordenes,marca&limit=${sPs}&offset=${sFrom}`,
+                    { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
+                );
+                if (!sesionesRes.ok) throw new Error(`${sesionesRes.status}`);
+                const page = await sesionesRes.json();
+                sesionesRows = sesionesRows.concat(page);
+                if (page.length < sPs) break;
+                sFrom += sPs;
+            }
+            METRICAS_SESIONES_SHOPIFY = sesionesRows;
+        } catch (e) {
+            console.error('Error cargando metricas_sesiones_shopify:', e);
+            METRICAS_SESIONES_SHOPIFY = [];
         }
 
         // 7. Populate global filters
@@ -1365,7 +1386,7 @@ function computeCombinedFirstBuy(orders) {
     return firstBuy;
 }
 
-function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows) {
+function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows, sesionesRows) {
     const firstBuy = computeCombinedFirstBuy(orders);
 
     const nuevosPorMes = {};
@@ -1380,13 +1401,20 @@ function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows) {
         gastoPorMes[ym] = (gastoPorMes[ym]||0) + Number(r.monto_ars);
     });
 
-    // conversion ML: suma de ventas / suma de visitas por mes, sobre publicaciones (no ordenes)
+    // conversion combinada ML + Shopify: suma de ventas/ordenes sobre suma de
+    // visitas/sessions por mes — nunca se promedian los % de cada fuente.
     const conversionPorMes = {};
     (metricasRows || []).forEach(r => {
         const ym = r.mes.substring(0,7);
         if (!conversionPorMes[ym]) conversionPorMes[ym] = { ventas:0, visitas:0 };
         conversionPorMes[ym].ventas += Number(r.cantidad_ventas) || 0;
         conversionPorMes[ym].visitas += Number(r.visitas_unicas) || 0;
+    });
+    (sesionesRows || []).forEach(r => {
+        const ym = r.mes.substring(0,7);
+        if (!conversionPorMes[ym]) conversionPorMes[ym] = { ventas:0, visitas:0 };
+        conversionPorMes[ym].ventas += Number(r.ordenes) || 0;
+        conversionPorMes[ym].visitas += Number(r.sessions) || 0;
     });
 
     const ltvSumPorCohort = {};
@@ -1431,9 +1459,10 @@ function renderMarketing() {
 
     const gastoFiltrado = activeMarca ? GASTO.filter(r => r.marca === activeMarca) : GASTO;
     const metricasFiltradas = activeMarca ? METRICAS_ML.filter(r => r.marca === activeMarca) : METRICAS_ML;
+    const sesionesFiltradas = activeMarca ? METRICAS_SESIONES_SHOPIFY.filter(r => r.marca === activeMarca) : METRICAS_SESIONES_SHOPIFY;
     const orders = getOrdersCombinadasMkt();
     const monthsList = [...new Set(GASTO.map(r=>r.mes.substring(0,7)))].sort();
-    const rows = computeMarketingMonths(orders, gastoFiltrado, monthsList, metricasFiltradas);
+    const rows = computeMarketingMonths(orders, gastoFiltrado, monthsList, metricasFiltradas, sesionesFiltradas);
 
     const kpiRow = [...rows].reverse().find(r => r.ltv3m !== null) || rows[rows.length-1];
     const kpiRowConv = [...rows].reverse().find(r => r.conversion !== null) || kpiRow;
@@ -1441,13 +1470,13 @@ function renderMarketing() {
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cac !== null ? fmt(kpiRow.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roas !== null ? kpiRow.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto Meta</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCac !== null ? kpiRow.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
-        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión ML — ${fmtMonth(kpiRowConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiRowConv.conversion !== null ? kpiRowConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, solo Mercado Libre</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiRowConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiRowConv.conversion !== null ? kpiRowConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
     `;
 
     let html = `<table class="cohort-table">
         <thead><tr>
             <th class="left">Mes</th><th class="left">Gasto Meta</th><th>Clientes nuevos</th>
-            <th>CAC</th><th class="left">Ingresos</th><th>ROAS</th><th>LTV 3M</th><th>LTV:CAC</th><th>Conversión ML</th>
+            <th>CAC</th><th class="left">Ingresos</th><th>ROAS</th><th>LTV 3M</th><th>LTV:CAC</th><th>Conversión</th>
         </tr></thead><tbody>`;
     rows.forEach(r => {
         html += `<tr>
