@@ -1529,13 +1529,16 @@ function renderMarketing() {
     const rows = renderMarketingSeccion('marketingTable', gastoFiltrado, getOrdersCombinadasMkt(), metricasFiltradas, sesionesFiltradas);
 
     if (rows) {
-        const kpiRow = [...rows].reverse().find(r => r.ltv3m !== null) || rows[rows.length-1];
-        const kpiRowConv = [...rows].reverse().find(r => r.conversion !== null) || kpiRow;
+        const ultimoConValor = (campo) => [...rows].reverse().find(r => r[campo] !== null) || rows[rows.length-1];
+        const kpiCac    = ultimoConValor('cac');
+        const kpiRoas   = ultimoConValor('roas');
+        const kpiLtvCac = ultimoConValor('ltvCac');
+        const kpiConv   = ultimoConValor('conversion');
         kpiEl.innerHTML = `
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cac !== null ? fmt(kpiRow.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roas !== null ? kpiRow.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto total</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCac !== null ? kpiRow.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiRowConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiRowConv.conversion !== null ? kpiRowConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiCac.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiCac.cac !== null ? fmt(kpiCac.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRoas.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRoas.roas !== null ? kpiRoas.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto total</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiLtvCac.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiLtvCac.ltvCac !== null ? kpiLtvCac.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiConv.conversion !== null ? kpiConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
         `;
     }
 
