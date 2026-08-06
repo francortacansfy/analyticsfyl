@@ -478,6 +478,19 @@ function isValidDni(dni) {
     const d = (dni || '').trim();
     return d.length > 0 && d !== 'S/D';
 }
+function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || '').trim());
+}
+// Identificador de cliente: DNI si es válido, si no email normalizado como
+// fallback (prefijo 'email:' para no colisionar con un DNI numérico), si no
+// cadena vacía (cliente no identificable con los datos que tenemos).
+function resolveClienteId(dni, email) {
+    const d = (dni || '').trim();
+    if (isValidDni(d)) return d;
+    const e = (email || '').trim().toLowerCase();
+    if (isValidEmail(e)) return 'email:' + e;
+    return '';
+}
 
 // Clasifica el estado de ML en "cancelada" o "devuelta" (aproximacion por
 // palabra clave, igual criterio que Dashboard FYL/Agente de ventas).
@@ -579,7 +592,8 @@ async function loadData() {
                 tienda:    r.tienda  || '',
                 marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
                 email:     r.email || '',
-                dni:       r.dni     || '',
+                dni:       resolveClienteId(r.dni, r.email), // DNI, o email como fallback si no hay DNI
+                dniReal:   r.dni || '', // DNI crudo, solo para mostrar en la tabla de Clientes
                 comprador: r.comprador || '',
                 anulacion,
                 completa:      anulacion === 0,
@@ -594,7 +608,7 @@ async function loadData() {
         RAW_ROWS.forEach(r => {
             if (!r.num_venta || !r.completa) return;
             if (!orderMap[r.num_venta]) {
-                orderMap[r.num_venta] = { total:0, fecha:r.fecha, yearmonth:r.yearmonth, tienda:r.tienda, marca:r.marca||'', dni:r.dni, sku:r.sku, email:r.email||'' };
+                orderMap[r.num_venta] = { total:0, fecha:r.fecha, yearmonth:r.yearmonth, tienda:r.tienda, marca:r.marca||'', dni:r.dni, dniReal:r.dniReal, sku:r.sku, email:r.email||'' };
             }
             orderMap[r.num_venta].total += r.total;
             // marca desde tienda_oficial
@@ -603,8 +617,9 @@ async function loadData() {
         RAW_ORDERS = Object.values(orderMap).filter(o => o.total > 0);
         // marca desde tienda_oficial
 
-        // 6. RAW_COHORT: igual a RAW_ORDERS pero con dni
-        RAW_COHORT = RAW_ORDERS.filter(o => isValidDni(o.dni));
+        // 6. RAW_COHORT: igual a RAW_ORDERS pero con cliente identificado
+        // (o.dni ya es DNI-o-email, ver resolveClienteId)
+        RAW_COHORT = RAW_ORDERS.filter(o => !!o.dni);
 
         // 6b. Fetch gasto_publicidad_mensual — aislado: si falla, no debe romper el resto
         GASTO_ERROR = null;
@@ -713,7 +728,7 @@ function renderGeneral() {
     const nOrdenes   = orders.length;
     const aov        = nOrdenes ? revenue / nOrdenes : 0;
     const median     = calcMedian(orders.map(o=>o.total));
-    const clientes   = new Set(rows.filter(r=>r.completa).map(r=>r.dni).filter(isValidDni)).size;
+    const clientes   = new Set(rows.filter(r=>r.completa).map(r=>r.dni).filter(Boolean)).size;
     const unidadesVendidas = rows.filter(r => r.completa).reduce((s, r) => s + r.uds, 0);
     const comprasPorCliente = clientes ? (nOrdenes / clientes) : 0;
     const ticketMediano = median;
@@ -733,7 +748,7 @@ function renderGeneral() {
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Unidades Vendidas</span><div class="kpi-icon blue"><i class="fas fa-cubes"></i></div></div><div class="kpi-value">${unidadesVendidas.toLocaleString('es-AR')}</div><div class="kpi-sub">Unidades del período</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">AOV</span><div class="kpi-icon orange"><i class="fas fa-dollar-sign"></i></div></div><div class="kpi-value">${fmt(aov)}</div><div class="kpi-sub">Ticket promedio medio</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ticket mediano</span><div class="kpi-icon purple"><i class="fas fa-chart-line"></i></div></div><div class="kpi-value">${fmt(ticketMediano)}</div><div class="kpi-sub">Orden del percentil 50</div></div>
-        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon red"><i class="fas fa-users"></i></div></div><div class="kpi-value">${clientes.toLocaleString('es-AR')}</div><div class="kpi-sub">DNIs únicos</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon red"><i class="fas fa-users"></i></div></div><div class="kpi-value">${clientes.toLocaleString('es-AR')}</div><div class="kpi-sub">DNI, o email si no hay DNI</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Compras por cliente</span><div class="kpi-icon green"><i class="fas fa-redo"></i></div></div><div class="kpi-value">${comprasPorCliente.toFixed(2)}</div><div class="kpi-sub">Promedio de órdenes / cliente</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Cantidad Cancelada</span><div class="kpi-icon red"><i class="fas fa-ban"></i></div></div><div class="kpi-value">${cantCanceladas.toLocaleString('es-AR')}</div><div class="kpi-sub">Órdenes canceladas</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Valor Cancelada</span><div class="kpi-icon red"><i class="fas fa-ban"></i></div></div><div class="kpi-value">${fmt(montoCanceladas)}</div><div class="kpi-sub">Fuera de Revenue Total</div></div>
@@ -788,20 +803,20 @@ function renderClientes() {
     const clientMap = {};
     rows.forEach(r => {
         if (!r.completa) return;
-        const dni = (r.dni || '').trim();
-        if (!isValidDni(dni)) return;
-        if (!clientMap[dni]) clientMap[dni] = { total:0, uds:0, ordenes:new Set(), tiendas:new Set(), comprador:r.comprador||'', email:r.email||'', lastDate:'' };
-        clientMap[dni].total += r.total;
-        clientMap[dni].uds += r.uds;
-        if (r.num_venta) clientMap[dni].ordenes.add(r.num_venta);
-        if (r.tienda) clientMap[dni].tiendas.add(r.tienda);
-        if (r.comprador && !clientMap[dni].comprador) clientMap[dni].comprador = r.comprador;
-        if (r.email && !clientMap[dni].email) clientMap[dni].email = r.email;
-        if (r.fecha > clientMap[dni].lastDate) clientMap[dni].lastDate = r.fecha;
+        const key = r.dni; // DNI, o email como fallback (ver resolveClienteId)
+        if (!key) return;
+        if (!clientMap[key]) clientMap[key] = { dniReal:r.dniReal||'', total:0, uds:0, ordenes:new Set(), tiendas:new Set(), comprador:r.comprador||'', email:r.email||'', lastDate:'' };
+        clientMap[key].total += r.total;
+        clientMap[key].uds += r.uds;
+        if (r.num_venta) clientMap[key].ordenes.add(r.num_venta);
+        if (r.tienda) clientMap[key].tiendas.add(r.tienda);
+        if (r.comprador && !clientMap[key].comprador) clientMap[key].comprador = r.comprador;
+        if (r.email && !clientMap[key].email) clientMap[key].email = r.email;
+        if (r.fecha > clientMap[key].lastDate) clientMap[key].lastDate = r.fecha;
     });
 
     const entries = Object.entries(clientMap)
-        .filter(([dni]) => !q || dni.includes(q))
+        .filter(([,c]) => !q || c.dniReal.toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q))
         .sort((a,b) => b[1].total - a[1].total)
         .slice(0, 500);
 
@@ -811,15 +826,15 @@ function renderClientes() {
     const avgOrdenes    = totalClientes ? Object.values(clientMap).reduce((s,c)=>s+c.ordenes.size,0)/totalClientes : 0;
 
     document.getElementById('clientesKpis').innerHTML = `
-        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon blue"><i class="fas fa-users"></i></div></div><div class="kpi-value">${totalClientes.toLocaleString('es-AR')}</div><div class="kpi-sub">Con DNI identificado</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Clientes únicos</span><div class="kpi-icon blue"><i class="fas fa-users"></i></div></div><div class="kpi-value">${totalClientes.toLocaleString('es-AR')}</div><div class="kpi-sub">Con DNI o email identificado</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Revenue clientes</span><div class="kpi-icon green"><i class="fas fa-coins"></i></div></div><div class="kpi-value">${fmtK(totalRevCli)}</div><div class="kpi-sub">Total identificado</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ticket promedio</span><div class="kpi-icon orange"><i class="fas fa-dollar-sign"></i></div></div><div class="kpi-value">${fmt(avgTicket)}</div><div class="kpi-sub">Por orden por cliente</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Compras por cliente</span><div class="kpi-icon purple"><i class="fas fa-redo"></i></div></div><div class="kpi-value">${avgOrdenes.toFixed(2)}</div><div class="kpi-sub">Promedio de órdenes</div></div>
     `;
 
-    document.getElementById('tableClientsBody').innerHTML = entries.map(([dni, c]) => `
+    document.getElementById('tableClientsBody').innerHTML = entries.map(([,c]) => `
         <tr>
-            <td class="mono">${dni}</td>
+            <td class="mono">${c.dniReal || '—'}</td>
             <td style="font-size:12px;">${c.comprador||'—'}</td>
             <td style="font-size:12px;">${c.email||'—'}</td>
             <td>${fmt(c.total)}</td>
@@ -884,7 +899,7 @@ function renderAov(stab) {
     // Evitar Math.max(...DATA): al expandir todas las órdenes como argumentos
     // supera la pila del navegador cuando el historial crece.
     const maxOrd  = DATA.reduce((max, o) => Math.max(max, o.total), 0);
-    const clients = new Set(DATA.map(o=>o.dni).filter(isValidDni)).size;
+    const clients = new Set(DATA.map(o=>o.dni).filter(Boolean)).size;
     const isGeneral = stab === 'general';
 
     bodyEl.innerHTML = `
