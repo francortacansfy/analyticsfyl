@@ -436,6 +436,12 @@
             </div>
             <div class="cohort-scroll" id="marketingProductosTable"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
+        <div class="chart-card">
+            <div class="card-header">
+                <div><div class="card-title">Product Ads (Mercado Ads) — mes a mes</div><div class="card-sub">Métricas nativas de ML, todo Fylabs junto (no viene separado por marca). Respeta el filtro de Año de arriba.</div></div>
+            </div>
+            <div class="cohort-scroll" id="productAdsTable"><div class="empty">Sincronizá para ver datos</div></div>
+        </div>
     </div>
 
 </div><!-- /content -->
@@ -452,6 +458,7 @@ let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marc
 let GASTO_ERROR = null;
 let METRICAS_ML = [];   // metricas_publicaciones_ml: visitas/ventas por publicacion/mes (Mercado Libre)
 let METRICAS_SESIONES_SHOPIFY = []; // metricas_sesiones_shopify: sessions/ordenes por landing page/mes (Shopify)
+let PRODUCT_ADS_ML = []; // metricas_product_ads_ml: metricas nativas de Mercado Ads por mes (todo Fylabs, sin marca)
 let SKU_MARCA   = {};
 let CHARTS      = {};
 let activePage  = 'general';
@@ -677,6 +684,19 @@ async function loadData() {
         } catch (e) {
             console.error('Error cargando metricas_sesiones_shopify:', e);
             METRICAS_SESIONES_SHOPIFY = [];
+        }
+
+        // 6e. Fetch metricas_product_ads_ml — aislado: si falla, no debe romper el resto
+        try {
+            const paRes = await fetch(
+                `${SUPA_URL}/rest/v1/metricas_product_ads_ml?select=mes,campanas,impresiones,clicks,inversion_ars,gmv_atribuido_ars,ordenes,ctr,cpc_ars,roas,acos&order=mes.asc`,
+                { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
+            );
+            if (!paRes.ok) throw new Error(`${paRes.status}`);
+            PRODUCT_ADS_ML = await paRes.json();
+        } catch (e) {
+            console.error('Error cargando metricas_product_ads_ml:', e);
+            PRODUCT_ADS_ML = [];
         }
 
         // 7. Populate global filters
@@ -1597,6 +1617,42 @@ function renderMarketing() {
     renderMarketingKpis('marketingKpisML', rowsML);
 
     renderMarketingProductos();
+    renderProductAdsML();
+}
+
+function renderProductAdsML() {
+    const el = document.getElementById('productAdsTable');
+    if (!el) return;
+    if (!PRODUCT_ADS_ML.length) { el.innerHTML = '<div class="empty">Sincronizá para ver datos</div>'; return; }
+
+    const year = document.getElementById('globalYear')?.value || '';
+    const filtered = PRODUCT_ADS_ML.filter(r => !year || r.mes.startsWith(year));
+    if (!filtered.length) { el.innerHTML = '<div class="empty">Sin datos para el año seleccionado</div>'; return; }
+
+    let html = `<table class="cohort-table">
+        <thead><tr>
+            <th class="left">Mes</th><th class="right">Campañas</th><th class="right">Impresiones</th>
+            <th class="right">Clicks</th><th class="right">CTR</th><th class="left">Inversión</th>
+            <th class="right">CPC</th><th class="left">GMV Atribuido</th><th class="right">Órdenes</th>
+            <th class="right">ROAS</th><th class="right">ACOS</th>
+        </tr></thead><tbody>`;
+    filtered.forEach(r => {
+        html += `<tr>
+            <td class="cohort-label">${fmtMonth(r.mes.substring(0,7))}</td>
+            <td class="cohort-count">${(r.campanas||0).toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${(r.impresiones||0).toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${(r.clicks||0).toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${(r.ctr||0).toFixed(2)}%</td>
+            <td class="cohort-label">${fmt(r.inversion_ars)}</td>
+            <td class="cohort-count">${fmt(r.cpc_ars)}</td>
+            <td class="cohort-label">${fmt(r.gmv_atribuido_ars)}</td>
+            <td class="cohort-count">${(r.ordenes||0).toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${(r.roas||0).toFixed(2)}x</td>
+            <td class="cohort-count">${(r.acos||0).toFixed(2)}%</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    el.innerHTML = html;
 }
 
 function renderMarketingProductos() {
