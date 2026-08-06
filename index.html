@@ -409,23 +409,25 @@
     <!-- ── MARKETING (CAC / ROAS / LTV) ── -->
     <div class="page" id="page-marketing">
         <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessMarketing">—</strong></div>
-        <div class="kpi-grid" id="marketingKpis"></div>
         <div class="chart-card">
             <div class="card-header">
                 <div><div class="card-title">Todo el gasto vs. toda la venta</div><div class="card-sub">Meta + Google + Mercado Ads combinados, vs. Shopify + Mercado Libre combinados</div></div>
             </div>
+            <div class="kpi-grid" id="marketingKpisGeneral"></div>
             <div class="cohort-scroll" id="marketingTable"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
         <div class="chart-card">
             <div class="card-header">
                 <div><div class="card-title">Meta + Google vs. Shopify</div><div class="card-sub">Gasto en Meta y Google Ads contra ventas y sessions de Shopify</div></div>
             </div>
+            <div class="kpi-grid" id="marketingKpisShopify"></div>
             <div class="cohort-scroll" id="marketingTableShopify"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
         <div class="chart-card">
             <div class="card-header">
                 <div><div class="card-title">Mercado Ads vs. Mercado Libre</div><div class="card-sub">Gasto en Mercado Ads contra ventas y visitas de Mercado Libre</div></div>
             </div>
+            <div class="kpi-grid" id="marketingKpisML"></div>
             <div class="cohort-scroll" id="marketingTableML"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
         <div class="chart-card">
@@ -1513,12 +1515,43 @@ function renderMarketingSeccion(tableElId, gastoRows, orders, metricasRows, sesi
     return rows;
 }
 
-function renderMarketing() {
-    const kpiEl = document.getElementById('marketingKpis');
+// KPIs de una sección: último mes con dato real (cac/roas/ltvCac ya excluyen
+// meses con cobertura parcial de canales, así nunca muestran un ratio inflado),
+// sin pasarse del mes que marca el filtro Año/Mes global.
+function renderMarketingKpis(kpiElId, rows) {
+    const kpiEl = document.getElementById(kpiElId);
     if (!kpiEl) return;
+    if (!rows || !rows.length) { kpiEl.innerHTML = ''; return; }
 
+    const yearSel  = document.getElementById('globalYear')?.value  || '';
+    const monthSel = document.getElementById('globalMonth')?.value || '';
+    let mesObjetivo = rows[rows.length - 1].mes;
+    if (yearSel && monthSel) mesObjetivo = `${yearSel}-${monthSel}`;
+    else if (yearSel) {
+        const delAnio = rows.filter(r => r.mes.startsWith(yearSel));
+        if (delAnio.length) mesObjetivo = delAnio[delAnio.length - 1].mes;
+    }
+
+    const ultimoHasta = (campo) => {
+        const candidatos = rows.filter(r => r.mes <= mesObjetivo);
+        const base = candidatos.length ? candidatos : rows;
+        return [...base].reverse().find(r => r[campo] !== null) || base[base.length - 1];
+    };
+    const kpiCac    = ultimoHasta('cac');
+    const kpiRoas   = ultimoHasta('roas');
+    const kpiLtvCac = ultimoHasta('ltvCac');
+    const kpiConv   = ultimoHasta('conversion');
+    kpiEl.innerHTML = `
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiCac.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiCac.cac !== null ? fmt(kpiCac.cac) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRoas.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRoas.roas !== null ? kpiRoas.roas.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiLtvCac.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiLtvCac.ltvCac !== null ? kpiLtvCac.ltvCac.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiConv.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiConv.conversion !== null ? kpiConv.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas</div></div>
+    `;
+}
+
+function renderMarketing() {
     if (GASTO_ERROR) {
-        kpiEl.innerHTML = '';
+        ['marketingKpisGeneral','marketingKpisShopify','marketingKpisML'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
         document.getElementById('marketingTable').innerHTML = `<div class="empty">Error cargando datos de gasto: ${GASTO_ERROR}</div>`;
         return;
     }
@@ -1532,27 +1565,18 @@ function renderMarketing() {
     const sesionesFiltradas = activeMarca ? METRICAS_SESIONES_SHOPIFY.filter(r => r.marca === activeMarca) : METRICAS_SESIONES_SHOPIFY;
 
     // Sección 1: todo el gasto vs. toda la venta (Shopify + Mercado Libre combinados)
-    const rows = renderMarketingSeccion('marketingTable', gastoFiltrado, getOrdersCombinadasMkt(), metricasFiltradas, sesionesFiltradas);
-
-    if (rows) {
-        const kpiRow = rows[rows.length - 1];
-        const kpiConvRow = [...rows].reverse().find(r => r.conversion !== null) || kpiRow;
-        const nota = kpiRow.gastoCompleto ? '' : ' · gasto parcial este mes (falta algún canal)';
-        kpiEl.innerHTML = `
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon orange"><i class="fas fa-hand-holding-dollar"></i></div></div><div class="kpi-value">${kpiRow.cacBruto !== null ? fmt(kpiRow.cacBruto) : '—'}</div><div class="kpi-sub">Costo por cliente nuevo${nota}</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">ROAS — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon green"><i class="fas fa-bullseye"></i></div></div><div class="kpi-value">${kpiRow.roasBruto !== null ? kpiRow.roasBruto.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">Ingresos / gasto total${nota}</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">LTV:CAC — ${fmtMonth(kpiRow.mes)}</span><div class="kpi-icon blue"><i class="fas fa-scale-balanced"></i></div></div><div class="kpi-value">${kpiRow.ltvCacBruto !== null ? kpiRow.ltvCacBruto.toFixed(2)+'x' : '—'}</div><div class="kpi-sub">LTV 3M / CAC${nota}</div></div>
-            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Tasa de Conversión — ${fmtMonth(kpiConvRow.mes)}</span><div class="kpi-icon purple"><i class="fas fa-percent"></i></div></div><div class="kpi-value">${kpiConvRow.conversion !== null ? kpiConvRow.conversion.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Ventas / visitas, ML + Shopify</div></div>
-        `;
-    }
+    const rowsGeneral = renderMarketingSeccion('marketingTable', gastoFiltrado, getOrdersCombinadasMkt(), metricasFiltradas, sesionesFiltradas);
+    renderMarketingKpis('marketingKpisGeneral', rowsGeneral);
 
     // Sección 2: Meta + Google vs. Shopify
     const gastoMetaGoogle = gastoFiltrado.filter(r => r.canal === 'Meta' || r.canal === 'Google');
-    renderMarketingSeccion('marketingTableShopify', gastoMetaGoogle, getOrdersCombinadasMkt('shopify'), [], sesionesFiltradas);
+    const rowsShopify = renderMarketingSeccion('marketingTableShopify', gastoMetaGoogle, getOrdersCombinadasMkt('shopify'), [], sesionesFiltradas);
+    renderMarketingKpis('marketingKpisShopify', rowsShopify);
 
     // Sección 3: Mercado Ads vs. Mercado Libre
     const gastoMercadoAds = gastoFiltrado.filter(r => r.canal === 'Mercado Ads');
-    renderMarketingSeccion('marketingTableML', gastoMercadoAds, getOrdersCombinadasMkt('ml'), metricasFiltradas, []);
+    const rowsML = renderMarketingSeccion('marketingTableML', gastoMercadoAds, getOrdersCombinadasMkt('ml'), metricasFiltradas, []);
+    renderMarketingKpis('marketingKpisML', rowsML);
 
     renderMarketingProductos();
 }
