@@ -569,7 +569,7 @@ async function loadData() {
         let allRows = []; let from = 0; const ps = 1000;
         while (true) {
             const res = await fetch(
-                `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email&ingresos_productos_ars=gt.0&limit=${ps}&offset=${from}`,
+                `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email,tipo_fila&ingresos_productos_ars=gt.0&limit=${ps}&offset=${from}`,
                 { headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
             );
             if (!res.ok) throw new Error(`${res.status}`);
@@ -580,7 +580,10 @@ async function loadData() {
         }
 
         // 4. RAW_ROWS: filas individuales enriquecidas
-        RAW_ROWS = allRows.map(r => {
+        // tipo_fila='hija' = desglose de producto de un paquete ML: su plata
+        // ya está contada en la fila 'padre' del mismo paquete, se excluye
+        // para no duplicar ingresos/clientes/órdenes.
+        RAW_ROWS = allRows.filter(r => r.tipo_fila !== 'hija').map(r => {
             const anulacion = parseFloat(r.anulaciones_reembolsos_ars) || 0;
             return {
                 num_venta: r.num_venta || '',
