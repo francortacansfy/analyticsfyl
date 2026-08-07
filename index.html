@@ -556,6 +556,37 @@ function getGlobalFiltered() {
     });
 }
 
+// Pagina en paralelo en vez de secuencial: primero pide el conteo total con
+// count=exact (limit=1, no trae filas), calcula cuantas paginas de 1000 hacen
+// falta y las pide todas juntas (en tandas de a CONCURRENCIA para no saturar
+// la conexion). Esto es lo que mas tarda en cargar el dashboard — antes eran
+// ~150 requests uno atras del otro, ahora van en paralelo.
+async function fetchAllParalelo(urlBase, headers) {
+    const CONCURRENCIA = 12;
+    const ps = 1000;
+    const countRes = await fetch(`${urlBase}&limit=1`, { headers: { ...headers, 'Prefer': 'count=exact' } });
+    if (!countRes.ok) throw new Error(`${countRes.status}`);
+    const range = countRes.headers.get('content-range'); // "0-0/12345"
+    const total = range ? parseInt(range.split('/')[1], 10) : 0;
+    if (!total) return [];
+
+    const offsets = [];
+    for (let from = 0; from < total; from += ps) offsets.push(from);
+
+    const resultados = new Array(offsets.length);
+    for (let i = 0; i < offsets.length; i += CONCURRENCIA) {
+        const tanda = offsets.slice(i, i + CONCURRENCIA);
+        const paginas = await Promise.all(tanda.map(from =>
+            fetch(`${urlBase}&limit=${ps}&offset=${from}`, { headers }).then(r => {
+                if (!r.ok) throw new Error(`${r.status}`);
+                return r.json();
+            })
+        ));
+        paginas.forEach((pagina, j) => { resultados[i + j] = pagina; });
+    }
+    return resultados.flat();
+}
+
 // ── LOAD DATA ─────────────────────────────────────────────────────────────
 async function loadData() {
     const overlay   = document.getElementById('loadingOverlay');
@@ -572,19 +603,11 @@ async function loadData() {
             prods.forEach(p => { if (p.sku) SKU_MARCA[p.sku] = p.marca ? p.marca.trim() : ''; });
         }
 
-        // 3. Fetch ventas (paginado)
-        let allRows = []; let from = 0; const ps = 1000;
-        while (true) {
-            const res = await fetch(
-                `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email,tipo_fila&ingresos_productos_ars=gt.0&limit=${ps}&offset=${from}`,
-                { headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } }
-            );
-            if (!res.ok) throw new Error(`${res.status}`);
-            const page = await res.json();
-            allRows = allRows.concat(page);
-            if (page.length < ps) break;
-            from += ps;
-        }
+        // 3. Fetch ventas (paginado en paralelo)
+        const allRows = await fetchAllParalelo(
+            `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email,tipo_fila&ingresos_productos_ars=gt.0`,
+            { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` }
+        );
 
         // 4. RAW_ROWS: filas individuales enriquecidas
         // tipo_fila='hija' = desglose de producto de un paquete ML: su plata
@@ -646,41 +669,23 @@ async function loadData() {
             GASTO_ERROR = e.message;
         }
 
-        // 6c. Fetch metricas_publicaciones_ml (paginado) — aislado: si falla, no debe romper el resto
+        // 6c. Fetch metricas_publicaciones_ml (paginado en paralelo) — aislado: si falla, no debe romper el resto
         try {
-            let metricasRows = []; let mFrom = 0; const mPs = 1000;
-            while (true) {
-                const metricasRes = await fetch(
-                    `${SUPA_URL}/rest/v1/metricas_publicaciones_ml?select=mes,sku,publicacion,cantidad_ventas,visitas_unicas,marca&limit=${mPs}&offset=${mFrom}`,
-                    { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
-                );
-                if (!metricasRes.ok) throw new Error(`${metricasRes.status}`);
-                const page = await metricasRes.json();
-                metricasRows = metricasRows.concat(page);
-                if (page.length < mPs) break;
-                mFrom += mPs;
-            }
-            METRICAS_ML = metricasRows;
+            METRICAS_ML = await fetchAllParalelo(
+                `${SUPA_URL}/rest/v1/metricas_publicaciones_ml?select=mes,sku,publicacion,cantidad_ventas,visitas_unicas,marca`,
+                { 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` }
+            );
         } catch (e) {
             console.error('Error cargando metricas_publicaciones_ml:', e);
             METRICAS_ML = [];
         }
 
-        // 6d. Fetch metricas_sesiones_shopify (paginado) — aislado: si falla, no debe romper el resto
+        // 6d. Fetch metricas_sesiones_shopify (paginado en paralelo) — aislado: si falla, no debe romper el resto
         try {
-            let sesionesRows = []; let sFrom = 0; const sPs = 1000;
-            while (true) {
-                const sesionesRes = await fetch(
-                    `${SUPA_URL}/rest/v1/metricas_sesiones_shopify?select=mes,sessions,ordenes,marca&limit=${sPs}&offset=${sFrom}`,
-                    { headers:{ 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` } }
-                );
-                if (!sesionesRes.ok) throw new Error(`${sesionesRes.status}`);
-                const page = await sesionesRes.json();
-                sesionesRows = sesionesRows.concat(page);
-                if (page.length < sPs) break;
-                sFrom += sPs;
-            }
-            METRICAS_SESIONES_SHOPIFY = sesionesRows;
+            METRICAS_SESIONES_SHOPIFY = await fetchAllParalelo(
+                `${SUPA_URL}/rest/v1/metricas_sesiones_shopify?select=mes,sessions,ordenes,marca`,
+                { 'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}` }
+            );
         } catch (e) {
             console.error('Error cargando metricas_sesiones_shopify:', e);
             METRICAS_SESIONES_SHOPIFY = [];
