@@ -560,12 +560,24 @@ function getGlobalFiltered() {
 // count=exact (limit=1, no trae filas), calcula cuantas paginas de 1000 hacen
 // falta y las pide todas juntas (en tandas de a CONCURRENCIA para no saturar
 // la conexion). Esto es lo que mas tarda en cargar el dashboard — antes eran
-// ~150 requests uno atras del otro, ahora van en paralelo.
+// ~150 requests uno atras del otro, ahora van en paralelo. Con reintentos:
+// Supabase a veces devuelve un 500/502/503 transitorio bajo carga concurrente,
+// asi que cada pagina reintenta un par de veces antes de rendirse.
+async function fetchConReintentos(url, headers, intentos = 3) {
+    for (let i = 0; i < intentos; i++) {
+        const res = await fetch(url, { headers });
+        if (res.ok) return res;
+        if (i === intentos - 1 || ![429, 500, 502, 503, 504].includes(res.status)) {
+            throw new Error(`${res.status}`);
+        }
+        await new Promise(r => setTimeout(r, 400 * (i + 1))); // backoff simple
+    }
+}
+
 async function fetchAllParalelo(urlBase, headers) {
-    const CONCURRENCIA = 12;
+    const CONCURRENCIA = 6;
     const ps = 1000;
-    const countRes = await fetch(`${urlBase}&limit=1`, { headers: { ...headers, 'Prefer': 'count=exact' } });
-    if (!countRes.ok) throw new Error(`${countRes.status}`);
+    const countRes = await fetchConReintentos(`${urlBase}&limit=1`, { ...headers, 'Prefer': 'count=exact' });
     const range = countRes.headers.get('content-range'); // "0-0/12345"
     const total = range ? parseInt(range.split('/')[1], 10) : 0;
     if (!total) return [];
@@ -577,10 +589,7 @@ async function fetchAllParalelo(urlBase, headers) {
     for (let i = 0; i < offsets.length; i += CONCURRENCIA) {
         const tanda = offsets.slice(i, i + CONCURRENCIA);
         const paginas = await Promise.all(tanda.map(from =>
-            fetch(`${urlBase}&limit=${ps}&offset=${from}`, { headers }).then(r => {
-                if (!r.ok) throw new Error(`${r.status}`);
-                return r.json();
-            })
+            fetchConReintentos(`${urlBase}&limit=${ps}&offset=${from}`, headers).then(r => r.json())
         ));
         paginas.forEach((pagina, j) => { resultados[i + j] = pagina; });
     }
