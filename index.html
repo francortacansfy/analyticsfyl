@@ -454,6 +454,7 @@ const SUPA_KEY = 'sb_publishable_14OWO27CxU7Cml4rwtvBlg_8RR-6sGm';
 let RAW_ROWS    = [];   // filas crudas de ventas
 let RAW_ORDERS  = [];   // agrupado por num_venta (para AOV)
 let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tienda)
+let RAW_ROWS_CONTEO = []; // filas hijas+sueltas (excluye 'padre'), solo para contar ventas/canceladas/devueltas como ML
 let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
 let GASTO_ERROR = null;
 let METRICAS_ML = [];   // metricas_publicaciones_ml: visitas/ventas por publicacion/mes (Mercado Libre)
@@ -556,6 +557,21 @@ function getGlobalFiltered() {
     });
 }
 
+// Igual que getGlobalFiltered() pero sobre RAW_ROWS_CONTEO (hijas+sueltas) —
+// para contar "cantidad de ventas"/canceladas/devueltas como ML.
+function getGlobalFilteredConteo() {
+    const year   = document.getElementById('globalYear')?.value   || '';
+    const month  = document.getElementById('globalMonth')?.value  || '';
+    const tienda = document.getElementById('globalTienda')?.value || '';
+    return RAW_ROWS_CONTEO.filter(r => {
+        if (activeMarca) { const om=r.marca?.toLowerCase()||''; const isH=om.includes('hairfy'); const isF=om.includes('fynutrition')||om.includes('fy labs'); if(activeMarca==='Hairfy'&&!isH) return false; if(activeMarca==='FYnutrition'&&!isF) return false; }
+        if (tienda && r.tienda !== tienda) return false;
+        if (year  && r.fecha?.substring(0,4) !== year)  return false;
+        if (month && r.fecha?.substring(5,7) !== month) return false;
+        return true;
+    });
+}
+
 // Pagina en paralelo en vez de secuencial: primero pide el conteo total con
 // count=exact (limit=1, no trae filas), calcula cuantas paginas de 1000 hacen
 // falta y las pide todas juntas (en tandas de a CONCURRENCIA para no saturar
@@ -637,6 +653,30 @@ async function loadData() {
                 dni:       resolveClienteId(r.dni, r.email), // DNI, o email como fallback si no hay DNI
                 dniReal:   r.dni || '', // DNI crudo, solo para mostrar en la tabla de Clientes
                 comprador: r.comprador || '',
+                anulacion,
+                completa:      anulacion === 0,
+                tipoAnulacion: anulacion !== 0 ? clasificarAnulacion(r.estado) : null,
+            };
+        }).filter(r => r.total > 0);
+
+        // 4b. RAW_ROWS_CONTEO: hijas+sueltas (excluye 'padre'), solo para
+        // contar "cantidad de ventas"/canceladas/devueltas. Para ML cada
+        // producto de un paquete es una venta independiente (propio
+        // num_venta/estado, se puede cancelar aparte) - la cabecera es solo
+        // un renglon de agrupacion de envio, no una venta en si. No se usa
+        // para plata/AOV/unidades: ahi seguimos usando RAW_ROWS (padre+
+        // sueltas) para no tocar esos calculos.
+        RAW_ROWS_CONTEO = allRows.filter(r => r.tipo_fila !== 'padre').map(r => {
+            const anulacion = parseFloat(r.anulaciones_reembolsos_ars) || 0;
+            return {
+                num_venta: r.num_venta || '',
+                fecha:     r.fecha    || '',
+                yearmonth: (r.fecha||'').substring(0,7),
+                total:     parseFloat(r.ingresos_productos_ars) || 0,
+                tienda:    r.tienda  || '',
+                marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
+                dni:       resolveClienteId(r.dni, r.email),
+                email:     r.email || '',
                 anulacion,
                 completa:      anulacion === 0,
                 tipoAnulacion: anulacion !== 0 ? clasificarAnulacion(r.estado) : null,
@@ -758,30 +798,44 @@ async function loadData() {
 // ── GENERAL PAGE ─────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 function renderGeneral() {
-    const rows   = getGlobalFiltered();
+    const rows       = getGlobalFiltered();
+    const rowsConteo = getGlobalFilteredConteo();
     const orders = groupByOrder(rows);
 
-    const revenue    = orders.reduce((s,o) => s+o.total, 0);
-    const nOrdenes   = orders.length;
+    // AOV/Ticket mediano/Compras por cliente: hijas+sueltas, como calcula ML
+    // su "Precio promedio por venta" (Ventas Brutas / Cantidad de ventas -
+    // mismo denominador que el tile "Órdenes"). Por conservacion de reparto
+    // la plata total da igual que con cabecera+sueltas, solo cambia cuantas
+    // "ordenes" hay para promediar.
+    const ordersConteo = groupByOrder(rowsConteo);
+    const revenue    = ordersConteo.reduce((s,o) => s+o.total, 0);
+    const nOrdenes   = ordersConteo.length;
     const aov        = nOrdenes ? revenue / nOrdenes : 0;
-    const median     = calcMedian(orders.map(o=>o.total));
+    const median     = calcMedian(ordersConteo.map(o=>o.total));
     const clientes   = new Set(rows.filter(r=>r.completa).map(r=>r.dni).filter(Boolean)).size;
     const unidadesVendidas = rows.filter(r => r.completa).reduce((s, r) => s + r.uds, 0);
     const comprasPorCliente = clientes ? (nOrdenes / clientes) : 0;
     const ticketMediano = median;
 
-    // Canceladas/devueltas: aproximacion por palabra clave sobre `estado`,
-    // mismo criterio que Dashboard FYL — no entran en los totales de arriba.
+    // "Órdenes" mostrado: hijas+sueltas, como cuenta ML (cada producto de un
+    // paquete es una venta independiente con su propio num_venta/estado -
+    // la cabecera es solo un renglon de agrupacion de envio, no una venta).
+    // SIN excluir canceladas/devueltas: el tile nativo de ML si las cuenta.
+    const nOrdenesConteo = new Set(rowsConteo.map(r => r.num_venta)).size;
+
+    // Canceladas/devueltas: cantidad sobre hijas+sueltas (mismo criterio que
+    // "Órdenes" de arriba, evita contar el mismo paquete dos veces via
+    // padre + sus hijas); monto sobre cabecera+sueltas como toda la plata.
     const filasCanceladas = rows.filter(r => r.tipoAnulacion === 'cancelada');
     const filasDevueltas   = rows.filter(r => r.tipoAnulacion === 'devuelta');
-    const cantCanceladas  = new Set(filasCanceladas.map(r => r.num_venta)).size;
+    const cantCanceladas  = new Set(rowsConteo.filter(r => r.tipoAnulacion === 'cancelada').map(r => r.num_venta)).size;
     const montoCanceladas = filasCanceladas.reduce((s, r) => s + r.total, 0);
-    const cantDevueltas   = new Set(filasDevueltas.map(r => r.num_venta)).size;
+    const cantDevueltas   = new Set(rowsConteo.filter(r => r.tipoAnulacion === 'devuelta').map(r => r.num_venta)).size;
     const montoDevueltas  = filasDevueltas.reduce((s, r) => s + r.total, 0);
 
     document.getElementById('generalKpis').innerHTML = `
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Revenue Total</span><div class="kpi-icon green"><i class="fas fa-coins"></i></div></div><div class="kpi-value">${fmtK(revenue)}</div><div class="kpi-sub">Ingresos del período</div></div>
-        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Órdenes</span><div class="kpi-icon blue"><i class="fas fa-receipt"></i></div></div><div class="kpi-value">${nOrdenes.toLocaleString('es-AR')}</div><div class="kpi-sub">Ventas únicas</div></div>
+        <div class="kpi"><div class="kpi-header"><span class="kpi-label">Órdenes</span><div class="kpi-icon blue"><i class="fas fa-receipt"></i></div></div><div class="kpi-value">${nOrdenesConteo.toLocaleString('es-AR')}</div><div class="kpi-sub">Ventas únicas</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Unidades Vendidas</span><div class="kpi-icon blue"><i class="fas fa-cubes"></i></div></div><div class="kpi-value">${unidadesVendidas.toLocaleString('es-AR')}</div><div class="kpi-sub">Unidades del período</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">AOV</span><div class="kpi-icon orange"><i class="fas fa-dollar-sign"></i></div></div><div class="kpi-value">${fmt(aov)}</div><div class="kpi-sub">Ticket promedio medio</div></div>
         <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ticket mediano</span><div class="kpi-icon purple"><i class="fas fa-chart-line"></i></div></div><div class="kpi-value">${fmt(ticketMediano)}</div><div class="kpi-sub">Orden del percentil 50</div></div>
