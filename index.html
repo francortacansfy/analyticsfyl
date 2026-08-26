@@ -1059,7 +1059,7 @@ function renderAovTiendaCards(stab) {
     const marcaF = AOV_MARCA_FILTER[stab];
     const marcaActiva = marcaF || activeMarca;
     const tiendaMap = {};
-    RAW_ORDERS.forEach(o => {
+    RAW_ORDERS_CONTEO.forEach(o => {
         if (marcaActiva) { const om=o.marca?.toLowerCase()||''; const isH=om.includes('hairfy'); const isF=om.includes('fynutrition')||om.includes('fy labs'); if(marcaActiva==='Hairfy'&&!isH) return; if(marcaActiva==='FYnutrition'&&!isF) return; }
         if (year   && !o.fecha?.startsWith(year))        return;
         if (month  && o.fecha?.substring(5,7) !== month) return;
@@ -1085,7 +1085,7 @@ function renderAovEvol(stab) {
     const marcaF      = AOV_MARCA_FILTER[stab];
     const marcaActiva = marcaF || activeMarca;
     const tiendaF     = AOV_STATE[stab].tienda;
-    const BASE = RAW_ORDERS.filter(o => {
+    const BASE = RAW_ORDERS_CONTEO.filter(o => {
         if (marcaF) { const om=o.marca?.toLowerCase()||''; const isHairfy=om.includes('hairfy'); const isFyn=om.includes('fynutrition')||om.includes('fy labs'); if(marcaF==='Hairfy'&&!isHairfy) return false; if(marcaF==='FYnutrition'&&!isFyn) return false; }
         if (tiendaF && o.tienda !== tiendaF) return false;
         return true;
@@ -1187,7 +1187,7 @@ function renderBrandCompare(stab) {
     ['Hairfy','FYnutrition'].forEach(marca => {
         const key = marca==='Hairfy'?'hairfy':'fyn';
         const tiendaMap={};
-        RAW_ORDERS.forEach(o=>{
+        RAW_ORDERS_CONTEO.forEach(o=>{
             const om = o.marca?.toLowerCase()||'';
             const isHairfy = om.includes('hairfy');
             const isFyn    = om.includes('fynutrition')||om.includes('fy labs')||om.includes('fy nutrition');
