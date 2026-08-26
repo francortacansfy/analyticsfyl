@@ -976,7 +976,7 @@ function getAovFiltered(stab) {
     // marcaF viene del sub-tab (null en general), activeMarca del filtro global
     const marcaF = AOV_MARCA_FILTER[stab];
     const marcaActiva = marcaF || activeMarca; // sub-tab tiene prioridad, si no usa el global
-    return RAW_ORDERS.filter(o => {
+    return RAW_ORDERS_CONTEO.filter(o => {
         if (marcaActiva) {
             const om = o.marca?.toLowerCase()||'';
             const isH = om.includes('hairfy');
