@@ -700,6 +700,20 @@ async function loadData() {
         RAW_ORDERS = Object.values(orderMap).filter(o => o.total > 0);
         // marca desde tienda_oficial
 
+        // 5b. RAW_ORDERS_CONTEO: mismo agrupado pero sobre RAW_ROWS_CONTEO
+        // (hijas+sueltas, excluye 'padre') — para que el AOV cuente cada
+        // producto de un paquete ML como una venta aparte, igual que ML
+        // mismo en su "Precio promedio por venta".
+        const orderMapConteo = {};
+        RAW_ROWS_CONTEO.forEach(r => {
+            if (!r.num_venta || !r.completa) return;
+            if (!orderMapConteo[r.num_venta]) {
+                orderMapConteo[r.num_venta] = { total:0, fecha:r.fecha, yearmonth:r.yearmonth, tienda:r.tienda, marca:r.marca||'', dni:r.dni, email:r.email||'' };
+            }
+            orderMapConteo[r.num_venta].total += r.total;
+        });
+        RAW_ORDERS_CONTEO = Object.values(orderMapConteo).filter(o => o.total > 0);
+
         // 6. RAW_COHORT: igual a RAW_ORDERS pero con cliente identificado
         // (o.dni ya es DNI-o-email, ver resolveClienteId)
         RAW_COHORT = RAW_ORDERS.filter(o => !!o.dni);
