@@ -452,7 +452,8 @@ const SUPA_KEY = 'sb_publishable_14OWO27CxU7Cml4rwtvBlg_8RR-6sGm';
 
 // ── STATE ─────────────────────────────────────────────────────────────────
 let RAW_ROWS    = [];   // filas crudas de ventas
-let RAW_ORDERS  = [];   // agrupado por num_venta (para AOV)
+let RAW_ORDERS  = [];   // agrupado por num_venta (para Cohort)
+let RAW_ORDERS_CONTEO = []; // agrupado por num_venta sobre hijas+sueltas (para AOV, criterio nativo ML)
 let RAW_COHORT  = [];   // agrupado por num_venta (para cohort, incluye dni/tienda)
 let RAW_ROWS_CONTEO = []; // filas hijas+sueltas (excluye 'padre'), solo para contar ventas/canceladas/devueltas como ML
 let GASTO       = [];   // gasto_publicidad_mensual: gasto Meta Ads por mes/marca
