@@ -1865,6 +1865,37 @@ function fmtARS(n) {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
 }
 
+// Suma ingresos_productos_ars (RAW_ROWS.total) de una marca en [desde, hasta)
+// (fechas 'YYYY-MM-DD', hasta exclusivo). marca=null/'' no filtra por marca.
+function sumVentasEnRango(marca, desde, hasta) {
+    return RAW_ROWS.reduce((s, r) => {
+        if (marca && r.marca !== marca) return s;
+        if (!r.fecha || r.fecha < desde || r.fecha >= hasta) return s;
+        return s + (Number(r.total) || 0);
+    }, 0);
+}
+
+function sumarDiasISO(fechaIso, dias) {
+    const d = new Date(fechaIso);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
+}
+
+// % de una campaña sobre las ventas de su marca en una ventana de atribución
+// corta (5 días desde el envío) — más representativo que todo el mes.
+function pctVentasCampana(c) {
+    if (!c.fecha_envio) return null;
+    const desde = c.fecha_envio.slice(0, 10);
+    const hasta = sumarDiasISO(c.fecha_envio, 5);
+    const ventas = sumVentasEnRango(c.marca, desde, hasta);
+    if (!ventas) return null;
+    return Number(c.revenue_atribuido_ars || 0) / ventas * 100;
+}
+
+function fmtPct(pct) {
+    return pct === null || pct === undefined ? '—' : `${pct.toFixed(2)}%`;
+}
+
 function renderKlaviyo() {
     const marcaFiltro = KLAVIYO_MARCA_FILTER[activeKlaviyoBrand];
     const soloActividad = document.getElementById('klaviyoSoloActividad')?.checked;
@@ -1900,7 +1931,7 @@ function renderKlaviyo() {
         const campanasOrdenadas = [...campanas].sort((a, b) => (b.fecha_envio || '').localeCompare(a.fecha_envio || ''));
         campanasEl.innerHTML = campanasOrdenadas.length ? `
             <table class="cohort-table"><thead><tr>
-                <th class="left">Campaña</th><th class="left">Estado</th><th>Enviados</th><th>Apertura</th><th>Clicks</th><th class="right">Revenue</th>
+                <th class="left">Campaña</th><th class="left">Estado</th><th>Enviados</th><th>Apertura</th><th>Clicks</th><th class="right">Revenue</th><th class="right">% ventas (5d)</th>
             </tr></thead><tbody>
                 ${campanasOrdenadas.map(c => `<tr>
                     <td class="cohort-label">${c.nombre}</td>
@@ -1909,6 +1940,7 @@ function renderKlaviyo() {
                     <td>${c.enviados ? (c.aperturas / c.enviados * 100).toFixed(1) : '0.0'}%</td>
                     <td>${c.enviados ? (c.clicks / c.enviados * 100).toFixed(1) : '0.0'}%</td>
                     <td class="cohort-count">${fmtARS(c.revenue_atribuido_ars)}</td>
+                    <td class="cohort-count">${fmtPct(pctVentasCampana(c))}</td>
                 </tr>`).join('')}
             </tbody></table>
         ` : '<div class="empty">Sin campañas en el período</div>';
@@ -1921,6 +1953,13 @@ function renderKlaviyo() {
         acumulado.conversiones += Number(f.conversiones || 0);
         flowsPorNombre.set(f.nombre_flow, acumulado);
     }
+    // Los flows no tienen una fecha de envío puntual (corren continuo) -> el %
+    // se calcula sobre el total de ventas de todo el período cargado (mismos
+    // meses que trae metricas_klaviyo_flows), no una ventana corta como campañas.
+    const mesesFlows = Array.from(new Set(flows.map(f => f.mes))).sort();
+    const ventasPeriodoFlows = mesesFlows.length
+        ? sumVentasEnRango(marcaFiltro, mesesFlows[0], sumarDiasISO(new Date().toISOString().slice(0, 10), 1))
+        : 0;
     const flowsEl = document.getElementById('klaviyoFlowsTable');
     if (flowsEl) {
         let filasFlows = Array.from(flowsPorNombre.values());
@@ -1928,13 +1967,14 @@ function renderKlaviyo() {
         filasFlows.sort((a, b) => b.revenue - a.revenue);
         flowsEl.innerHTML = filasFlows.length ? `
             <table class="cohort-table"><thead><tr>
-                <th class="left">Flow</th><th class="left">Estado</th><th>Conversiones</th><th class="right">Revenue</th>
+                <th class="left">Flow</th><th class="left">Estado</th><th>Conversiones</th><th class="right">Revenue</th><th class="right">% ventas período</th>
             </tr></thead><tbody>
                 ${filasFlows.map(f => `<tr>
                     <td class="cohort-label">${f.nombre_flow}</td>
                     <td class="cohort-label">${f.estado || '—'}</td>
                     <td>${f.conversiones}</td>
                     <td class="cohort-count">${fmtARS(f.revenue)}</td>
+                    <td class="cohort-count">${fmtPct(ventasPeriodoFlows ? f.revenue / ventasPeriodoFlows * 100 : null)}</td>
                 </tr>`).join('')}
             </tbody></table>
         ` : '<div class="empty">Sin flows en el período</div>';
