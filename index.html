@@ -441,6 +441,17 @@
         </div>
         <div class="chart-card">
             <div class="card-header">
+                <div><div class="card-title">Product Ads (Mercado Ads) — mes a mes</div><div class="card-sub">Métricas nativas de ML, todo Fylabs junto (no viene separado por marca). Respeta el filtro de Año de arriba.</div></div>
+            </div>
+            <div class="cohort-scroll" id="productAdsTable"><div class="empty">Sincronizá para ver datos</div></div>
+        </div>
+    </div>
+
+    <!-- ── KLAVIYO (EMAIL & SMS) ── -->
+    <div class="page" id="page-klaviyo">
+        <div class="freshness-badge">Datos actualizados hasta <strong id="freshnessKlaviyo">—</strong></div>
+        <div class="chart-card">
+            <div class="card-header">
                 <div><div class="card-title">Email &amp; SMS (Klaviyo)</div><div class="card-sub">Revenue atribuido, campañas, flows y crecimiento de lista. Cuentas separadas por marca.</div></div>
             </div>
             <div class="sub-tabs" id="klaviyoBrandTabs">
@@ -448,10 +459,14 @@
                 <button class="sub-tab" data-stab="hairfy" onclick="switchKlaviyoBrand('hairfy')"><span class="tab-dot"></span>Hairfy</button>
                 <button class="sub-tab" data-stab="fyn" onclick="switchKlaviyoBrand('fyn')"><span class="tab-dot"></span>Fynutrition</button>
             </div>
+            <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);margin:14px 0 4px;cursor:pointer;">
+                <input type="checkbox" id="klaviyoSoloActividad" onchange="renderKlaviyo()">
+                Ocultar borradores/canceladas y sin actividad
+            </label>
             <div class="kpi-grid" id="klaviyoKpis"></div>
             <div class="two-col">
                 <div class="chart-card no-mb">
-                    <div class="card-header"><div class="card-title">Campañas enviadas</div></div>
+                    <div class="card-header"><div class="card-title">Campañas</div></div>
                     <div class="cohort-scroll" id="klaviyoCampanasTable"><div class="empty">Sincronizá para ver datos</div></div>
                 </div>
                 <div class="chart-card no-mb">
@@ -463,12 +478,6 @@
                 <div class="card-header"><div class="card-title">Crecimiento de lista</div><div class="card-sub">Suscriptores nuevos vs. bajas, por mes</div></div>
                 <div class="chart-wrap"><canvas id="klaviyoListaChart"></canvas></div>
             </div>
-        </div>
-        <div class="chart-card">
-            <div class="card-header">
-                <div><div class="card-title">Product Ads (Mercado Ads) — mes a mes</div><div class="card-sub">Métricas nativas de ML, todo Fylabs junto (no viene separado por marca). Respeta el filtro de Año de arriba.</div></div>
-            </div>
-            <div class="cohort-scroll" id="productAdsTable"><div class="empty">Sincronizá para ver datos</div></div>
         </div>
     </div>
 
@@ -504,8 +513,8 @@ let klaviyoChart = null;
 async function fetchKlaviyoData() {
     const headers = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` };
     const [campanas, flows, lista] = await Promise.all([
-        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_campanas?select=marca,canal,nombre,fecha_envio,enviados,aperturas,clicks,revenue_atribuido_ars&order=fecha_envio.desc`, { headers }).then(r => r.json()),
-        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_flows?select=marca,flow_id,nombre_flow,mes,revenue_atribuido_ars,conversiones&order=mes.desc`, { headers }).then(r => r.json()),
+        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_campanas?select=marca,canal,nombre,estado,fecha_envio,enviados,aperturas,clicks,revenue_atribuido_ars&order=fecha_envio.desc`, { headers }).then(r => r.json()),
+        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_flows?select=marca,flow_id,nombre_flow,estado,mes,revenue_atribuido_ars,conversiones&order=mes.desc`, { headers }).then(r => r.json()),
         fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_lista?select=marca,mes,suscriptores_nuevos,bajas&order=mes.asc`, { headers }).then(r => r.json()),
     ]);
     KLAVIYO_CAMPANAS = Array.isArray(campanas) ? campanas : [];
@@ -572,6 +581,7 @@ function switchPage(page) {
     if (page === 'aov')      renderAov('general');
     if (page === 'cohort')   renderCohortAll();
     if (page === 'marketing') renderMarketing();
+    if (page === 'klaviyo') renderKlaviyo();
 }
 
 // ── GLOBAL FILTERS ────────────────────────────────────────────────────────
@@ -848,7 +858,7 @@ async function loadData() {
 
         statusDot.classList.add('ok');
         const maxFechaStr = formatFechaDMY(getMaxFecha(RAW_ROWS));
-        ['freshnessGeneral', 'freshnessClientes', 'freshnessAov', 'freshnessCohort', 'freshnessMarketing'].forEach(id => {
+        ['freshnessGeneral', 'freshnessClientes', 'freshnessAov', 'freshnessCohort', 'freshnessMarketing', 'freshnessKlaviyo'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.textContent = maxFechaStr;
         });
@@ -1724,7 +1734,6 @@ function renderMarketingKpis(kpiElId, rows) {
 }
 
 function renderMarketing() {
-    renderKlaviyo();
     if (GASTO_ERROR) {
         ['marketingKpisGeneral','marketingKpisShopify','marketingKpisML'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
         document.getElementById('marketingTable').innerHTML = `<div class="empty">Error cargando datos de gasto: ${GASTO_ERROR}</div>`;
@@ -1857,9 +1866,14 @@ function fmtARS(n) {
 
 function renderKlaviyo() {
     const marcaFiltro = KLAVIYO_MARCA_FILTER[activeKlaviyoBrand];
-    const campanas = marcaFiltro ? KLAVIYO_CAMPANAS.filter(c => c.marca === marcaFiltro) : KLAVIYO_CAMPANAS;
-    const flows = marcaFiltro ? KLAVIYO_FLOWS.filter(f => f.marca === marcaFiltro) : KLAVIYO_FLOWS;
+    const soloActividad = document.getElementById('klaviyoSoloActividad')?.checked;
+    let campanas = marcaFiltro ? KLAVIYO_CAMPANAS.filter(c => c.marca === marcaFiltro) : KLAVIYO_CAMPANAS;
+    let flows = marcaFiltro ? KLAVIYO_FLOWS.filter(f => f.marca === marcaFiltro) : KLAVIYO_FLOWS;
     const lista = marcaFiltro ? KLAVIYO_LISTA.filter(l => l.marca === marcaFiltro) : KLAVIYO_LISTA;
+
+    if (soloActividad) {
+        campanas = campanas.filter(c => c.estado === 'Sent' && Number(c.enviados || 0) > 0);
+    }
 
     const revenueCampanas = campanas.reduce((s, c) => s + Number(c.revenue_atribuido_ars || 0), 0);
     const revenueFlows = flows.reduce((s, f) => s + Number(f.revenue_atribuido_ars || 0), 0);
@@ -1882,12 +1896,14 @@ function renderKlaviyo() {
 
     const campanasEl = document.getElementById('klaviyoCampanasTable');
     if (campanasEl) {
-        campanasEl.innerHTML = campanas.length ? `
+        const campanasOrdenadas = [...campanas].sort((a, b) => (b.fecha_envio || '').localeCompare(a.fecha_envio || ''));
+        campanasEl.innerHTML = campanasOrdenadas.length ? `
             <table class="cohort-table"><thead><tr>
-                <th class="left">Campaña</th><th>Enviados</th><th>Apertura</th><th>Clicks</th><th class="right">Revenue</th>
+                <th class="left">Campaña</th><th class="left">Estado</th><th>Enviados</th><th>Apertura</th><th>Clicks</th><th class="right">Revenue</th>
             </tr></thead><tbody>
-                ${campanas.map(c => `<tr>
+                ${campanasOrdenadas.map(c => `<tr>
                     <td class="cohort-label">${c.nombre}</td>
+                    <td class="cohort-label">${c.estado || '—'}</td>
                     <td>${Number(c.enviados || 0).toLocaleString('es-AR')}</td>
                     <td>${c.enviados ? (c.aperturas / c.enviados * 100).toFixed(1) : '0.0'}%</td>
                     <td>${c.enviados ? (c.clicks / c.enviados * 100).toFixed(1) : '0.0'}%</td>
@@ -1899,20 +1915,23 @@ function renderKlaviyo() {
 
     const flowsPorNombre = new Map();
     for (const f of flows) {
-        const acumulado = flowsPorNombre.get(f.nombre_flow) || { nombre_flow: f.nombre_flow, revenue: 0, conversiones: 0 };
+        const acumulado = flowsPorNombre.get(f.nombre_flow) || { nombre_flow: f.nombre_flow, estado: f.estado, revenue: 0, conversiones: 0 };
         acumulado.revenue += Number(f.revenue_atribuido_ars || 0);
         acumulado.conversiones += Number(f.conversiones || 0);
         flowsPorNombre.set(f.nombre_flow, acumulado);
     }
     const flowsEl = document.getElementById('klaviyoFlowsTable');
     if (flowsEl) {
-        const filasFlows = Array.from(flowsPorNombre.values()).sort((a, b) => b.revenue - a.revenue);
+        let filasFlows = Array.from(flowsPorNombre.values());
+        if (soloActividad) filasFlows = filasFlows.filter(f => f.revenue > 0 || f.conversiones > 0);
+        filasFlows.sort((a, b) => b.revenue - a.revenue);
         flowsEl.innerHTML = filasFlows.length ? `
             <table class="cohort-table"><thead><tr>
-                <th class="left">Flow</th><th>Conversiones</th><th class="right">Revenue</th>
+                <th class="left">Flow</th><th class="left">Estado</th><th>Conversiones</th><th class="right">Revenue</th>
             </tr></thead><tbody>
                 ${filasFlows.map(f => `<tr>
                     <td class="cohort-label">${f.nombre_flow}</td>
+                    <td class="cohort-label">${f.estado || '—'}</td>
                     <td>${f.conversiones}</td>
                     <td class="cohort-count">${fmtARS(f.revenue)}</td>
                 </tr>`).join('')}
