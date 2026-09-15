@@ -492,6 +492,23 @@ let activePage  = 'general';
 let activeMarca = '';
 let activeAovSubTab = 'general';
 let activeCanalCohort = 'shopify';
+let KLAVIYO_CAMPANAS = [];
+let KLAVIYO_FLOWS = [];
+let KLAVIYO_LISTA = [];
+let activeKlaviyoBrand = 'general';
+let klaviyoChart = null;
+
+async function fetchKlaviyoData() {
+    const headers = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` };
+    const [campanas, flows, lista] = await Promise.all([
+        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_campanas?select=marca,canal,nombre,fecha_envio,enviados,aperturas,clicks,revenue_atribuido_ars&order=fecha_envio.desc`, { headers }).then(r => r.json()),
+        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_flows?select=marca,flow_id,nombre_flow,mes,revenue_atribuido_ars,conversiones&order=mes.desc`, { headers }).then(r => r.json()),
+        fetch(`${SUPA_URL}/rest/v1/metricas_klaviyo_lista?select=marca,mes,suscriptores_nuevos,bajas&order=mes.asc`, { headers }).then(r => r.json()),
+    ]);
+    KLAVIYO_CAMPANAS = Array.isArray(campanas) ? campanas : [];
+    KLAVIYO_FLOWS = Array.isArray(flows) ? flows : [];
+    KLAVIYO_LISTA = Array.isArray(lista) ? lista : [];
+}
 
 const AOV_MARCA_FILTER  = { general: null, hairfy: 'Hairfy', fyn: 'FYnutrition' };
 const AOV_STATE = {
@@ -791,6 +808,14 @@ async function loadData() {
         } catch (e) {
             console.error('Error cargando metricas_product_ads_ml:', e);
             PRODUCT_ADS_ML = [];
+        }
+
+        // 6f. Fetch metricas de Klaviyo — aislado: si falla, no debe romper el resto
+        try {
+            await fetchKlaviyoData();
+        } catch (e) {
+            console.error('Error cargando metricas de Klaviyo:', e);
+            KLAVIYO_CAMPANAS = []; KLAVIYO_FLOWS = []; KLAVIYO_LISTA = [];
         }
 
         // 7. Populate global filters
@@ -1696,6 +1721,7 @@ function renderMarketingKpis(kpiElId, rows) {
 }
 
 function renderMarketing() {
+    renderKlaviyo();
     if (GASTO_ERROR) {
         ['marketingKpisGeneral','marketingKpisShopify','marketingKpisML'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
         document.getElementById('marketingTable').innerHTML = `<div class="empty">Error cargando datos de gasto: ${GASTO_ERROR}</div>`;
@@ -1812,6 +1838,104 @@ function renderMarketingProductos() {
     });
     html += `</tbody></table>`;
     el.innerHTML = html;
+}
+
+const KLAVIYO_MARCA_FILTER = { general: null, hairfy: 'Hairfy', fyn: 'FYnutrition' };
+
+function switchKlaviyoBrand(brand) {
+    activeKlaviyoBrand = brand;
+    document.querySelectorAll('#klaviyoBrandTabs .sub-tab').forEach(b => b.classList.toggle('active', b.dataset.stab === brand));
+    renderKlaviyo();
+}
+
+function fmtARS(n) {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
+}
+
+function renderKlaviyo() {
+    const marcaFiltro = KLAVIYO_MARCA_FILTER[activeKlaviyoBrand];
+    const campanas = marcaFiltro ? KLAVIYO_CAMPANAS.filter(c => c.marca === marcaFiltro) : KLAVIYO_CAMPANAS;
+    const flows = marcaFiltro ? KLAVIYO_FLOWS.filter(f => f.marca === marcaFiltro) : KLAVIYO_FLOWS;
+    const lista = marcaFiltro ? KLAVIYO_LISTA.filter(l => l.marca === marcaFiltro) : KLAVIYO_LISTA;
+
+    const revenueCampanas = campanas.reduce((s, c) => s + Number(c.revenue_atribuido_ars || 0), 0);
+    const revenueFlows = flows.reduce((s, f) => s + Number(f.revenue_atribuido_ars || 0), 0);
+    const revenueTotal = revenueCampanas + revenueFlows;
+    const totalEnviados = campanas.reduce((s, c) => s + Number(c.enviados || 0), 0);
+    const totalAperturas = campanas.reduce((s, c) => s + Number(c.aperturas || 0), 0);
+    const totalClicks = campanas.reduce((s, c) => s + Number(c.clicks || 0), 0);
+    const openRate = totalEnviados ? (totalAperturas / totalEnviados * 100) : 0;
+    const clickRate = totalEnviados ? (totalClicks / totalEnviados * 100) : 0;
+
+    const kpiEl = document.getElementById('klaviyoKpis');
+    if (kpiEl) {
+        kpiEl.innerHTML = `
+            <div class="kpi"><div class="kpi-header"><div class="kpi-label">Revenue atribuido</div><div class="kpi-icon green"><i class="fas fa-sack-dollar"></i></div></div><div class="kpi-value">${fmtARS(revenueTotal)}</div><div class="kpi-sub">Campañas + flows</div></div>
+            <div class="kpi"><div class="kpi-header"><div class="kpi-label">Open rate</div><div class="kpi-icon blue"><i class="fas fa-envelope-open"></i></div></div><div class="kpi-value">${openRate.toFixed(1)}%</div><div class="kpi-sub">Promedio campañas</div></div>
+            <div class="kpi"><div class="kpi-header"><div class="kpi-label">Click rate</div><div class="kpi-icon orange"><i class="fas fa-arrow-pointer"></i></div></div><div class="kpi-value">${clickRate.toFixed(1)}%</div><div class="kpi-sub">Promedio campañas</div></div>
+            <div class="kpi"><div class="kpi-header"><div class="kpi-label">Campañas enviadas</div><div class="kpi-icon purple"><i class="fas fa-bullhorn"></i></div></div><div class="kpi-value">${campanas.length}</div><div class="kpi-sub">Período cargado</div></div>
+        `;
+    }
+
+    const campanasEl = document.getElementById('klaviyoCampanasTable');
+    if (campanasEl) {
+        campanasEl.innerHTML = campanas.length ? `
+            <table class="cohort-table"><thead><tr>
+                <th class="left">Campaña</th><th>Enviados</th><th>Apertura</th><th>Clicks</th><th class="right">Revenue</th>
+            </tr></thead><tbody>
+                ${campanas.map(c => `<tr>
+                    <td class="cohort-label">${c.nombre}</td>
+                    <td>${Number(c.enviados || 0).toLocaleString('es-AR')}</td>
+                    <td>${c.enviados ? (c.aperturas / c.enviados * 100).toFixed(1) : '0.0'}%</td>
+                    <td>${c.enviados ? (c.clicks / c.enviados * 100).toFixed(1) : '0.0'}%</td>
+                    <td class="cohort-count">${fmtARS(c.revenue_atribuido_ars)}</td>
+                </tr>`).join('')}
+            </tbody></table>
+        ` : '<div class="empty">Sin campañas en el período</div>';
+    }
+
+    const flowsPorNombre = new Map();
+    for (const f of flows) {
+        const acumulado = flowsPorNombre.get(f.nombre_flow) || { nombre_flow: f.nombre_flow, revenue: 0, conversiones: 0 };
+        acumulado.revenue += Number(f.revenue_atribuido_ars || 0);
+        acumulado.conversiones += Number(f.conversiones || 0);
+        flowsPorNombre.set(f.nombre_flow, acumulado);
+    }
+    const flowsEl = document.getElementById('klaviyoFlowsTable');
+    if (flowsEl) {
+        const filasFlows = Array.from(flowsPorNombre.values()).sort((a, b) => b.revenue - a.revenue);
+        flowsEl.innerHTML = filasFlows.length ? `
+            <table class="cohort-table"><thead><tr>
+                <th class="left">Flow</th><th>Conversiones</th><th class="right">Revenue</th>
+            </tr></thead><tbody>
+                ${filasFlows.map(f => `<tr>
+                    <td class="cohort-label">${f.nombre_flow}</td>
+                    <td>${f.conversiones}</td>
+                    <td class="cohort-count">${fmtARS(f.revenue)}</td>
+                </tr>`).join('')}
+            </tbody></table>
+        ` : '<div class="empty">Sin flows en el período</div>';
+    }
+
+    const mesesOrdenados = Array.from(new Set(lista.map(l => l.mes))).sort();
+    const suscriptoresPorMes = mesesOrdenados.map(mes => lista.filter(l => l.mes === mes).reduce((s, l) => s + Number(l.suscriptores_nuevos || 0), 0));
+    const bajasPorMes = mesesOrdenados.map(mes => lista.filter(l => l.mes === mes).reduce((s, l) => s + Number(l.bajas || 0), 0));
+
+    const canvas = document.getElementById('klaviyoListaChart');
+    if (canvas) {
+        if (klaviyoChart) klaviyoChart.destroy();
+        klaviyoChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: mesesOrdenados,
+                datasets: [
+                    { label: 'Suscriptores nuevos', data: suscriptoresPorMes, borderColor: 'var(--green)', backgroundColor: 'var(--green-light)', tension: 0.3 },
+                    { label: 'Bajas', data: bajasPorMes, borderColor: 'var(--red)', backgroundColor: 'var(--red-light)', tension: 0.3 },
+                ],
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
+        });
+    }
 }
 
 function cohortCellColor(intensity){
