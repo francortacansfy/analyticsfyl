@@ -438,6 +438,31 @@
         </div>
         <div class="chart-card">
             <div class="card-header">
+                <div><div class="card-title">Email &amp; SMS (Klaviyo)</div><div class="card-sub">Revenue atribuido, campañas, flows y crecimiento de lista. Cuentas separadas por marca.</div></div>
+            </div>
+            <div class="sub-tabs" id="klaviyoBrandTabs">
+                <button class="sub-tab active" data-stab="general" onclick="switchKlaviyoBrand('general')"><span class="tab-dot"></span>General</button>
+                <button class="sub-tab" data-stab="hairfy" onclick="switchKlaviyoBrand('hairfy')"><span class="tab-dot"></span>Hairfy</button>
+                <button class="sub-tab" data-stab="fyn" onclick="switchKlaviyoBrand('fyn')"><span class="tab-dot"></span>Fynutrition</button>
+            </div>
+            <div class="kpi-grid" id="klaviyoKpis"></div>
+            <div class="two-col">
+                <div class="chart-card no-mb">
+                    <div class="card-header"><div class="card-title">Campañas enviadas</div></div>
+                    <div class="cohort-scroll" id="klaviyoCampanasTable"><div class="empty">Sincronizá para ver datos</div></div>
+                </div>
+                <div class="chart-card no-mb">
+                    <div class="card-header"><div class="card-title">Flows — revenue por mes</div></div>
+                    <div class="cohort-scroll" id="klaviyoFlowsTable"><div class="empty">Sincronizá para ver datos</div></div>
+                </div>
+            </div>
+            <div class="chart-card no-mb" style="margin-top:16px;">
+                <div class="card-header"><div class="card-title">Crecimiento de lista</div><div class="card-sub">Suscriptores nuevos vs. bajas, por mes</div></div>
+                <div class="chart-wrap"><canvas id="klaviyoListaChart"></canvas></div>
+            </div>
+        </div>
+        <div class="chart-card">
+            <div class="card-header">
                 <div><div class="card-title">Product Ads (Mercado Ads) — mes a mes</div><div class="card-sub">Métricas nativas de ML, todo Fylabs junto (no viene separado por marca). Respeta el filtro de Año de arriba.</div></div>
             </div>
             <div class="cohort-scroll" id="productAdsTable"><div class="empty">Sincronizá para ver datos</div></div>
