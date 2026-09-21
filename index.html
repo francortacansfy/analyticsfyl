@@ -1793,6 +1793,66 @@ function renderMarketing() {
     renderProductAdsML();
 }
 
+// ── CATEGORÍAS / LÍNEAS DE PRODUCTO ─────────────────────────────────────────
+// Base: RAW_ROWS_CONTEO (hijas+sueltas) — a diferencia de RAW_ROWS (padre+
+// sueltas), acá cada fila trae su propio sku real (los 'padre' de un paquete
+// ML no tienen sku propio), que es lo que hace falta para poder agrupar por
+// categoria. Mismo criterio de "completa" (sin anulaciones/devoluciones) que
+// el resto del dashboard.
+function renderCategorias() {
+    const tableEl = document.getElementById('categoriasTable');
+    const kpiEl   = document.getElementById('categoriasKpis');
+    if (!tableEl) return;
+    if (!RAW_ROWS_CONTEO.length) { tableEl.innerHTML = '<div class="empty">Sincronizá para ver datos</div>'; return; }
+
+    const rows = getGlobalFilteredConteo().filter(r => r.completa);
+    if (!rows.length) { tableEl.innerHTML = '<div class="empty">Sin datos para este recorte</div>'; if (kpiEl) kpiEl.innerHTML=''; return; }
+
+    const porCategoria = {};
+    rows.forEach(r => {
+        const cat = r.categoria || 'Sin categoría';
+        if (!porCategoria[cat]) porCategoria[cat] = { ingresos: 0, unidades: 0, ordenes: new Set(), skus: new Set() };
+        porCategoria[cat].ingresos += r.total;
+        porCategoria[cat].unidades += r.uds;
+        porCategoria[cat].ordenes.add(r.num_venta);
+        if (r.sku) porCategoria[cat].skus.add(r.sku);
+    });
+
+    const totalIngresos = rows.reduce((s, r) => s + r.total, 0);
+    const lista = Object.entries(porCategoria)
+        .map(([categoria, d]) => ({ categoria, ingresos: d.ingresos, unidades: d.unidades, ordenes: d.ordenes.size, skus: d.skus.size }))
+        .sort((a, b) => b.ingresos - a.ingresos);
+
+    const lider = lista[0];
+    const sinCategoria = porCategoria['Sin categoría'];
+    const pctSinCategoria = sinCategoria ? (sinCategoria.ingresos / totalIngresos * 100) : 0;
+    if (kpiEl) {
+        kpiEl.innerHTML = `
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Categoría líder</span><div class="kpi-icon green"><i class="fas fa-crown"></i></div></div><div class="kpi-value" style="font-size:20px">${lider ? lider.categoria : '—'}</div><div class="kpi-sub">${lider ? fmt(lider.ingresos)+' ('+(lider.ingresos/totalIngresos*100).toFixed(1)+'%)' : ''}</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Categorías con ventas</span><div class="kpi-icon blue"><i class="fas fa-layer-group"></i></div></div><div class="kpi-value">${lista.length}</div><div class="kpi-sub">En el período filtrado</div></div>
+            <div class="kpi"><div class="kpi-header"><span class="kpi-label">Ingresos sin categorizar</span><div class="kpi-icon orange"><i class="fas fa-circle-question"></i></div></div><div class="kpi-value">${pctSinCategoria.toFixed(1)}%</div><div class="kpi-sub">SKUs sin categoria en Supabase</div></div>
+        `;
+    }
+
+    let html = `<table class="cohort-table">
+        <thead><tr>
+            <th class="left">Categoría / línea</th><th class="left">Ingresos</th><th class="right">% del total</th>
+            <th class="right">Unidades</th><th class="right">Órdenes</th><th class="right">SKUs activos</th>
+        </tr></thead><tbody>`;
+    lista.forEach(c => {
+        html += `<tr>
+            <td class="cohort-label">${c.categoria}</td>
+            <td class="cohort-label">${fmt(c.ingresos)}</td>
+            <td class="cohort-count">${(c.ingresos/totalIngresos*100).toFixed(1)}%</td>
+            <td class="cohort-count">${c.unidades.toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${c.ordenes.toLocaleString('es-AR')}</td>
+            <td class="cohort-count">${c.skus.toLocaleString('es-AR')}</td>
+        </tr>`;
+    });
+    html += `</tbody></table>`;
+    tableEl.innerHTML = html;
+}
+
 function renderProductAdsML() {
     const el = document.getElementById('productAdsTable');
     if (!el) return;
