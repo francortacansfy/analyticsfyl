@@ -859,7 +859,7 @@ async function loadData() {
 
         statusDot.classList.add('ok');
         const maxFechaStr = formatFechaDMY(getMaxFecha(RAW_ROWS));
-        ['freshnessGeneral', 'freshnessClientes', 'freshnessAov', 'freshnessCohort', 'freshnessMarketing', 'freshnessCategorias', 'freshnessKlaviyo'].forEach(id => {
+        ['freshnessGeneral', 'freshnessClientes', 'freshnessAov', 'freshnessCohort', 'freshnessMarketing', 'freshnessKlaviyo'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.textContent = maxFechaStr;
         });
