@@ -709,6 +709,7 @@ async function loadData() {
                 uds:       parseFloat(r.unidades) || 0,
                 total:     parseFloat(r.ingresos_productos_ars) || 0,
                 sku:       r.sku     || '',
+                categoria: SKU_CATEGORIA[r.sku] || '',
                 tienda:    r.tienda  || '',
                 marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
                 email:     r.email || '',
