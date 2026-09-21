@@ -677,16 +677,12 @@ async function loadData() {
     overlay.classList.add('show'); syncBtn.classList.add('loading'); statusDot.classList.remove('ok');
 
     try {
-        // 1. Fetch productos → sku→marca, sku→categoria
-        const prodRes = await fetch(`${SUPA_URL}/rest/v1/productos?select=sku,marca,categoria&limit=1000`,
+        // 1. Fetch productos → sku→marca
+        const prodRes = await fetch(`${SUPA_URL}/rest/v1/productos?select=sku,marca&limit=1000`,
             { headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` } });
         if (prodRes.ok) {
             const prods = await prodRes.json();
-            prods.forEach(p => {
-                if (!p.sku) return;
-                SKU_MARCA[p.sku] = p.marca ? p.marca.trim() : '';
-                SKU_CATEGORIA[p.sku] = p.categoria ? p.categoria.trim() : '';
-            });
+            prods.forEach(p => { if (p.sku) SKU_MARCA[p.sku] = p.marca ? p.marca.trim() : ''; });
         }
 
         // 3. Fetch ventas (paginado en paralelo)
@@ -708,7 +704,6 @@ async function loadData() {
                 uds:       parseFloat(r.unidades) || 0,
                 total:     parseFloat(r.ingresos_productos_ars) || 0,
                 sku:       r.sku     || '',
-                categoria: SKU_CATEGORIA[r.sku] || '',
                 tienda:    r.tienda  || '',
                 marca:     r.tienda_oficial ? r.tienda_oficial.trim() : (r.tienda || ''),
                 email:     r.email || '',
