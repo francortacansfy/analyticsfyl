@@ -1643,21 +1643,17 @@ function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows, ses
         const gasto = gastoPorMes[ym] || 0;
         const clientesNuevos = nuevosPorMes[ym] || 0;
         const ingresos = ingresosPorMes[ym] || 0;
-        const gastoCompleto = canalesDelRango.every(c => canalesPorMes[ym]?.has(c));
-        const cacBruto = (gasto > 0 && clientesNuevos > 0) ? gasto / clientesNuevos : null;
+        const cac = (gasto > 0 && clientesNuevos > 0) ? gasto / clientesNuevos : null;
         // ingresos=0 y clientesNuevos=0 suele ser "todavía no hay ventas
         // registradas ese mes" (ej. antes de mayo 2025) más que "publicidad
         // que vendió cero" — se trata como dato faltante, no como 0 real.
-        const roasBruto = (gasto > 0 && (ingresos > 0 || clientesNuevos > 0)) ? ingresos / gasto : null;
-        const cac = gastoCompleto ? cacBruto : null;
-        const roas = gastoCompleto ? roasBruto : null;
+        const roas = (gasto > 0 && (ingresos > 0 || clientesNuevos > 0)) ? ingresos / gasto : null;
         const windowComplete = monthDiff(ym, lastMonth) >= 2;
         const ltv3m = (windowComplete && clientesNuevos > 0) ? (ltvSumPorCohort[ym]||0) / clientesNuevos : null;
         const ltvCac = (ltv3m !== null && cac) ? ltv3m / cac : null;
-        const ltvCacBruto = (ltv3m !== null && cacBruto) ? ltv3m / cacBruto : null;
         const convDatos = conversionPorMes[ym];
         const conversion = (convDatos && convDatos.visitas > 0) ? convDatos.ventas / convDatos.visitas * 100 : null;
-        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac, conversion, cacBruto, roasBruto, ltvCacBruto, gastoCompleto };
+        return { mes: ym, gasto, clientesNuevos, ingresos, cac, roas, ltv3m, ltvCac, conversion };
     });
 }
 
