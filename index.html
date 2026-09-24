@@ -1604,17 +1604,12 @@ function computeMarketingMonths(orders, gastoRows, monthsList, metricasRows, ses
     const ingresosPorMes = {};
     orders.forEach(o => { ingresosPorMes[o.yearmonth] = (ingresosPorMes[o.yearmonth]||0) + o.ingresos; });
 
-    // gastoCompleto: si algún canal que existe en el rango pasado no tiene
-    // fila cargada para un mes puntual, ese mes no alcanza a todos los canales
-    // relevantes — CAC/ROAS quedarían inflados si se calculan igual.
-    const canalesDelRango = [...new Set(gastoRows.map(r => r.canal))];
+    // El gasto es el que está cargado en gasto_publicidad_mensual: un canal sin
+    // fila en un mes se toma como sin gasto ese mes (no se oculta el CAC/ROAS).
     const gastoPorMes = {};
-    const canalesPorMes = {};
     gastoRows.forEach(r => {
         const ym = r.mes.substring(0,7);
         gastoPorMes[ym] = (gastoPorMes[ym]||0) + Number(r.monto_ars);
-        if (!canalesPorMes[ym]) canalesPorMes[ym] = new Set();
-        canalesPorMes[ym].add(r.canal);
     });
 
     // conversion combinada ML + Shopify: suma de ventas/ordenes sobre suma de
