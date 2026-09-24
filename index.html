@@ -687,7 +687,7 @@ async function loadData() {
 
         // 3. Fetch ventas (paginado en paralelo)
         const allRows = await fetchAllParalelo(
-            `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email,tipo_fila&ingresos_productos_ars=gt.0`,
+            `${SUPA_URL}/rest/v1/ventas?select=num_venta,fecha,unidades,ingresos_productos_ars,anulaciones_reembolsos_ars,estado,sku,tienda,tienda_oficial,dni,comprador,email,tipo_fila&ingresos_productos_ars=gt.0&order=row_id.asc`,
             { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` }
         );
 
